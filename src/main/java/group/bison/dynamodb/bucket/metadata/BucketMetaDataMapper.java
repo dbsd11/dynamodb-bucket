@@ -12,7 +12,6 @@ import com.amazonaws.services.dynamodbv2.model.ListTablesResult;
 import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
 import com.amazonaws.services.dynamodbv2.model.PutItemRequest;
 import com.amazonaws.services.dynamodbv2.model.ResourceNotFoundException;
-import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType;
 import com.amazonaws.services.dynamodbv2.model.UpdateItemRequest;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
@@ -22,9 +21,12 @@ import org.apache.commons.collections.MapUtils;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -41,6 +43,8 @@ public class BucketMetaDataMapper {
     private String bucketTableName;
 
     private AmazonDynamoDB dynamoDB;
+
+    private static Set<String> bucketIndexSet = new HashSet<>();
 
     public void createBucketTable(List<AttributeDefinition> attributeDefinitionList) {
         boolean tableExist = false;
@@ -131,7 +135,31 @@ public class BucketMetaDataMapper {
     }
 
     public <W> void initIndex(String bucketId, W startBucketWindow, IndexCollection indexCollection) {
-        if (indexCollection == null || MapUtils.isEmpty(indexCollection.getIndexMap())) {
+        if (indexCollection == null) {
+            return;
+        }
+
+        // 先过滤已存在的
+        Iterator<Map.Entry<String, IndexCollection.InvertedIndex>> indexEntryIterator = indexCollection.getIndexMap().entrySet().iterator();
+        while (indexEntryIterator.hasNext()) {
+            Map.Entry<String, IndexCollection.InvertedIndex> indexEntry = indexEntryIterator.next();
+            Iterator<Map.Entry<String, IndexCollection.IndexItemId>> indexValueEntryIterator = indexEntry.getValue().getInvertedIndexValueMap().entrySet().iterator();
+            while (indexValueEntryIterator.hasNext()) {
+                Map.Entry<String, IndexCollection.IndexItemId> indexValueEntry = indexValueEntryIterator.next();
+                String indexUniqKey = String.join("_", bucketId, String.valueOf(startBucketWindow), indexEntry.getKey(), indexValueEntry.getKey());
+                if (bucketIndexSet.contains(indexUniqKey)) {
+                    indexValueEntryIterator.remove();
+                } else {
+                    bucketIndexSet.add(indexUniqKey);
+                }
+            }
+
+            if (MapUtils.isEmpty(indexCollection.getIndexMap().get(indexEntry.getKey()).getInvertedIndexValueMap())) {
+                indexEntryIterator.remove();
+            }
+        }
+
+        if (MapUtils.isEmpty(indexCollection.getIndexMap())) {
             return;
         }
 
