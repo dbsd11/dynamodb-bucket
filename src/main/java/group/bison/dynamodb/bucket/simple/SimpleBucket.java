@@ -49,13 +49,13 @@ public class SimpleBucket<T> implements BucketApi<T> {
     void init() {
         DynamoDBMapper mapper = new DynamoDBMapper(dynamoDB, DynamoDBMapperConfig.builder()
                 .withSaveBehavior(DynamoDBMapperConfig.SaveBehavior.UPDATE_SKIP_NULL_ATTRIBUTES)
-                .withTableNameOverride(new DynamoDBMapperConfig.TableNameOverride("bucket-" + tableName))
+                .withTableNameOverride(new DynamoDBMapperConfig.TableNameOverride(tableName))
                 .withConversionSchema(ConversionSchemas.V2)
                 .build());
         DynamoDBMapperTableModel<T> tableModel = mapper.getTableModel(itemCls);
         this.itemParser = new SimpleItemParser<>(tableModel);
         this.bucketMetaDataMapper = new BucketMetaDataMapper("bucket-" + tableName, dynamoDB);
-        this.bucketDataMapper = new BucketDataMapper("bucket-" + tableName, mapper, dynamoDB);
+        this.bucketDataMapper = new BucketDataMapper("bucket-" + tableName, dynamoDB);
 
         List<AttributeDefinition> attributeDefinitionList = new LinkedList<>();
         attributeDefinitionList.add(new AttributeDefinition().withAttributeName(KEY_BUCKET_ID).withAttributeType(ScalarAttributeType.S));

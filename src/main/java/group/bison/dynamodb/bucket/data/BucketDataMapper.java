@@ -1,7 +1,6 @@
 package group.bison.dynamodb.bucket.data;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
 import com.amazonaws.services.dynamodbv2.model.GetItemRequest;
 import com.amazonaws.services.dynamodbv2.model.GetItemResult;
@@ -38,11 +37,11 @@ public class BucketDataMapper {
 
     private String bucketTableName;
 
-    private DynamoDBMapper dynamoDBMapper;
-
     private AmazonDynamoDB dynamoDB;
 
     private static final String KEY_BIZ_ID = "bizId";
+
+    private static final String KEY_TTL_TIMESTAMP = "ttl_timestamp";
 
     public void insert(BucketItem bucketItem) {
         // 需保存bizId
@@ -86,6 +85,12 @@ public class BucketDataMapper {
                     attributeNameMap.put(indexSubKey, invertedIndexValueEntry.getKey());
                 });
             });
+        }
+
+        if (bucketItem.getItemAttributeValueMap().containsKey(KEY_TTL_TIMESTAMP)) {
+            updateExpressionBuilder.append("ttl_timestamp").append("=").append(":ttl_timestamp");
+            updateExpressionBuilder.append(",");
+            attributeValueMap.put(":ttl_timestamp", bucketItem.getItemAttributeValueMap().get(KEY_TTL_TIMESTAMP));
         }
 
         updateExpressionBuilder.deleteCharAt(updateExpressionBuilder.length() - 1);
