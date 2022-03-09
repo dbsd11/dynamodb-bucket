@@ -14,6 +14,7 @@ import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -24,8 +25,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static group.bison.dynamodb.bucket.common.Constants.KEY_BUCKET_ID;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_ITEM_MAP;
@@ -115,13 +116,22 @@ public class BucketDataMapper {
         Map<String, AttributeValue> attributeValueMap = new HashMap<>();
         StringBuilder updateExpressionBuilder = new StringBuilder("SET ");
 
-        updateExpressionBuilder.append(String.join("", Constants.KEY_ITEM_MAP, ".", "#itemId", " = ", ":item"));
-        updateExpressionBuilder.append(",");
+        bucketItem.getItemAttributeValueMap().entrySet().forEach(updateItemAttributeEntry -> {
+            String updateItemAttributeKey = String.join("", "#", updateItemAttributeEntry.getKey());
+            String updateItemAttributeValueKey = String.join("", ":", updateItemAttributeEntry.getKey());
+            updateExpressionBuilder.append(String.join("", Constants.KEY_ITEM_MAP, ".", "#itemId", ".", updateItemAttributeKey, " = ", updateItemAttributeValueKey));
+            updateExpressionBuilder.append(",");
+            attributeNameMap.put(updateItemAttributeKey, updateItemAttributeEntry.getKey());
+            attributeValueMap.put(updateItemAttributeValueKey, updateItemAttributeEntry.getValue());
+        });
+
         attributeNameMap.put("#itemId", bucketItem.getItemId());
-        attributeValueMap.put(":item", new AttributeValue().withM(bucketItem.getItemAttributeValueMap()));
 
         // add value index
         if (bucketItem.getIndexCollection() != null) {
+            // query current value
+            BucketItem currentBucketItem = queryOne(bucketItem.getBucketId(), bucketItem.getBucketWindow(), bucketItem.getItemId());
+
             bucketItem.getIndexCollection().getIndexMap().entrySet().forEach(indexEntry -> {
                 if (MapUtils.isEmpty(indexEntry.getValue().getInvertedIndexValueMap())) {
                     return;
@@ -130,11 +140,24 @@ public class BucketDataMapper {
                 String indexKey = indexEntry.getKey();
                 AtomicInteger i = new AtomicInteger();
                 indexEntry.getValue().getInvertedIndexValueMap().entrySet().forEach(invertedIndexValueEntry -> {
-                    String indexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
-                    String invertedIndexValueKeyPath = String.join(".", indexKey, indexSubKey, "#itemId");
-                    updateExpressionBuilder.append(String.join("", invertedIndexValueKeyPath, " = ", ":one"));
+                    AttributeValue currentAttributeValue = currentBucketItem.getItemAttributeValueMap().get(indexEntry.getKey());
+                    String currentValue = StringUtils.defaultString(currentAttributeValue.getS(), currentAttributeValue.getN());
+                    if (StringUtils.equals(invertedIndexValueEntry.getKey(), currentValue)) {
+                        return;
+                    }
+
+                    // set old index value 0
+                    String currentIndexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
+                    updateExpressionBuilder.append(String.join("", "#", indexKey, ".", currentIndexSubKey, ".", "#itemId", " = ", ":zero"));
                     updateExpressionBuilder.append(",");
-                    attributeNameMap.put(indexSubKey, invertedIndexValueEntry.getKey());
+                    attributeNameMap.put(currentIndexSubKey, currentValue);
+                    attributeValueMap.put(":zero", new AttributeValue().withN("0"));
+
+                    // set new index value 1
+                    String newIndexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
+                    updateExpressionBuilder.append(String.join("", indexKey, ".", newIndexSubKey, ".", "#itemId", " = ", ":one"));
+                    updateExpressionBuilder.append(",");
+                    attributeNameMap.put(newIndexSubKey, invertedIndexValueEntry.getKey());
                     attributeValueMap.put(":one", new AttributeValue().withN("1"));
                 });
             });
@@ -236,29 +259,7 @@ public class BucketDataMapper {
         getItemRequest.setExpressionAttributeNames(Collections.singletonMap("#itemId", itemId));
 
         GetItemResult getItemResult = dynamoDB.getItem(getItemRequest);
-        if (getItemResult == null
-                || MapUtils.isEmpty(getItemResult.getItem()) || !getItemResult.getItem().containsKey(KEY_ITEM_MAP)
-                || MapUtils.isEmpty(getItemResult.getItem().get(KEY_ITEM_MAP).getM()) || !getItemResult.getItem().get(KEY_ITEM_MAP).getM().containsKey(itemId)
-                || MapUtils.isEmpty(getItemResult.getItem().get(KEY_ITEM_MAP).getM().get(itemId).getM())) {
-            return null;
-        }
-
-        Map<String, AttributeValue> attributeValueMap = getItemResult.getItem().get(KEY_ITEM_MAP).getM().get(itemId).getM();
-
-        BucketItem bucketItem = new BucketItem() {
-            @Override
-            public String getBucketId() {
-                return bucketId;
-            }
-
-            @Override
-            public <W> W getBucketWindow() {
-                return (W) startBucketWindow;
-            }
-        };
-        bucketItem.setBizId(attributeValueMap.get(KEY_BIZ_ID).getS());
-        bucketItem.setItemAttributeValueMap(attributeValueMap);
-        return bucketItem;
+        return parseGetItemResult(getItemResult).get(itemId);
     }
 
     public <W> List<BucketItem> query(String bucketId, W startBucketWindow, W endBucketWindow, IndexCollection indexCollection, int from, int to) {
@@ -334,18 +335,16 @@ public class BucketDataMapper {
                 if (MapUtils.isEmpty(invertIndex.getM())) {
                     return;
                 }
-
                 invertIndex.getM().values().forEach(invertIndexValue -> {
+                    List<String> validItemIdList = invertIndexValue.getM().entrySet().stream().filter(entry -> "1".equals(entry.getValue().getN())).map(entry -> entry.getKey()).collect(Collectors.toList());
                     if (CollectionUtils.isEmpty(bucketItemIdSet)) {
-                        bucketItemIdSet.addAll(invertIndexValue.getM().keySet());
+                        bucketItemIdSet.addAll(validItemIdList);
                     } else {
-                        bucketItemIdSet.retainAll(invertIndexValue.getM().keySet());
+                        bucketItemIdSet.retainAll(validItemIdList);
                     }
                 });
             });
-
             itemIdList.addAll(bucketItemIdSet);
-
             bucketItemIdSet.forEach(bucketItemId -> itemId2BucketWindowMap.put(bucketItemId, bucketWindowAttributeValue));
         }
 
@@ -402,32 +401,45 @@ public class BucketDataMapper {
             getItemRequest.setExpressionAttributeNames(itemQueryAttributeNameMap);
 
             GetItemResult getItemResult = dynamoDB.getItem(getItemRequest);
-            if (getItemResult == null || MapUtils.isEmpty(getItemResult.getItem()) || !getItemResult.getItem().containsKey(KEY_ITEM_MAP)) {
-                return Stream.empty();
-            }
-
-            return getItemResult.getItem().get(KEY_ITEM_MAP).getM().values().stream().map(itemAttributeValueMap -> {
-                if (MapUtils.isEmpty(itemAttributeValueMap.getM())) {
-                    return null;
-                }
-                BucketItem bucketItem = new BucketItem() {
-                    @Override
-                    public String getBucketId() {
-                        return bucketId;
-                    }
-
-                    @Override
-                    public <W> W getBucketWindow() {
-                        return null;
-                    }
-                };
-
-                bucketItem.setBizId(itemAttributeValueMap.getM().get(KEY_BIZ_ID).getS());
-                bucketItem.setItemAttributeValueMap(itemAttributeValueMap.getM());
-                return bucketItem;
-            });
+            return parseGetItemResult(getItemResult).values().stream();
         }).filter(obj -> obj != null).collect(Collectors.toList());
 
         return bucketItemList;
+    }
+
+    Map<String, BucketItem> parseGetItemResult(GetItemResult getItemResult) {
+        if (getItemResult == null || MapUtils.isEmpty(getItemResult.getItem()) || !getItemResult.getItem().containsKey(KEY_ITEM_MAP)) {
+            return Collections.emptyMap();
+        }
+
+        Map<String, BucketItem> bucketItemMap = getItemResult.getItem().get(KEY_ITEM_MAP).getM().entrySet().stream().map(itemAttributeValueEntry -> {
+            String itemId = itemAttributeValueEntry.getKey();
+            Map<String, AttributeValue> attributeValueMap = itemAttributeValueEntry.getValue().getM();
+            if (MapUtils.isEmpty(attributeValueMap)) {
+                return null;
+            }
+
+
+            if (MapUtils.isEmpty(itemAttributeValueEntry.getValue().getM())) {
+                return null;
+            }
+
+            BucketItem bucketItem = new BucketItem() {
+                @Override
+                public String getBucketId() {
+                    return null;
+                }
+
+                @Override
+                public <W> W getBucketWindow() {
+                    return null;
+                }
+            };
+            bucketItem.setItemId(itemId);
+            bucketItem.setBizId(attributeValueMap.get(KEY_BIZ_ID).getS());
+            bucketItem.setItemAttributeValueMap(attributeValueMap);
+            return bucketItem;
+        }).filter(obj -> obj != null).collect(Collectors.toMap(BucketItem::getItemId, Function.identity()));
+        return bucketItemMap;
     }
 }

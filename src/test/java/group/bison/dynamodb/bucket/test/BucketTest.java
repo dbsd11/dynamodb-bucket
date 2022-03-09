@@ -48,11 +48,11 @@ public class BucketTest {
         log.info("queryVideoLibraryDO bizId{} imageUrl {}", queryVideoLibrary.getBizId(), queryVideoLibrary.getImageUrl());
 
         queryVideoLibrary.setImageUrl("http://img2.png");
-        queryVideoLibrary.setDeleted(1);
+        queryVideoLibrary.setDeleted(null);
         queryVideoLibrary.setSerialNumber("sn_02");
         bucket.update(queryVideoLibrary.getBizId(), queryVideoLibrary);
         queryVideoLibrary = bucket.queryOne(queryVideoLibrary.getBizId(), queryVideoLibrary.getTraceId(), queryVideoLibrary.getUserId());
-        log.info("queryVideoLibraryDO bizId{} imageUrl {}", queryVideoLibrary.getBizId(), queryVideoLibrary.getImageUrl());
+        log.info("queryVideoLibraryDO bizId{} imageUrl {} deleted {}", queryVideoLibrary.getBizId(), queryVideoLibrary.getImageUrl(), queryVideoLibrary.getDeleted());
 
         Map<String, String> expressionMap = new HashMap<>();
         Map<String, AttributeValue> expressionValueMap = new HashMap<>();
