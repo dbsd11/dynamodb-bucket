@@ -49,7 +49,7 @@ public class BucketMetaDataMapper {
     public void createBucketTable(List<AttributeDefinition> attributeDefinitionList) {
         boolean tableExist = false;
         try {
-            ListTablesResult listTablesResult = dynamoDB.listTables(bucketTableName);
+            ListTablesResult listTablesResult = dynamoDB.listTables();
             tableExist = CollectionUtils.isNotEmpty(listTablesResult.getTableNames()) && listTablesResult.getTableNames().contains(bucketTableName);
         } catch (Exception e) {
         }

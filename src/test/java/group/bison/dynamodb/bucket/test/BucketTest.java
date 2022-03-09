@@ -1,6 +1,7 @@
 package group.bison.dynamodb.bucket.test;
 
 import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
 import com.amazonaws.auth.AWSCredentials;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
@@ -25,14 +26,18 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
 public class BucketTest {
 
     public static void main(String[] args) {
+        ((Logger) LoggerFactory.getILoggerFactory().getLogger("ROOT")).setLevel(Level.INFO);
+
         AWSCredentials awsCredentials = new BasicAWSCredentials(System.getenv("awsAccessKey"), System.getenv("awsSecretKey"));
         AmazonDynamoDB dynamoDB = AmazonDynamoDBClientBuilder.standard()
                 .withRegion(System.getenv("awsRegion"))
@@ -41,7 +46,11 @@ public class BucketTest {
 
         BucketApi<VideoLibrary> bucket = new SimpleBucket<VideoLibrary>("video_library", VideoLibrary.class, dynamoDB);
 
-        VideoLibrary videoLibrary = VideoLibrary.builder().traceId(UUID.randomUUID().toString()).userId(1).timestamp(Long.valueOf(System.currentTimeMillis() / 1000).intValue()).serialNumber("sn_01").deleted(0).imageUrl("http://any.png").ttlTimestamp(System.currentTimeMillis() / 1000 + 600).build();
+        VideoLibrary videoLibrary = VideoLibrary.builder().traceId(UUID.randomUUID().toString()).userId(1).timestamp(Long.valueOf(System.currentTimeMillis() / 1000).intValue()).serialNumber("sn_01")
+                .tags(new HashSet<String>() {{
+                    add("PERSON");
+                }})
+                .deleted(0).imageUrl("http://any.png").ttlTimestamp(System.currentTimeMillis() / 1000 + 600).build();
 
         String bizId = bucket.add(videoLibrary);
         log.info("bizId {}", bizId);
@@ -52,6 +61,7 @@ public class BucketTest {
         queryVideoLibrary.setImageUrl("http://img2.png");
         queryVideoLibrary.setDeleted(null);
         queryVideoLibrary.setSerialNumber("sn_02");
+        queryVideoLibrary.getTags().add("VEHICLE");
         bucket.update(queryVideoLibrary.getBizId(), queryVideoLibrary);
         queryVideoLibrary = bucket.queryOne(queryVideoLibrary.getBizId(), queryVideoLibrary.getTraceId(), queryVideoLibrary.getUserId());
         log.info("queryVideoLibraryDO bizId{} imageUrl {} deleted {}", queryVideoLibrary.getBizId(), queryVideoLibrary.getImageUrl(), queryVideoLibrary.getDeleted());
@@ -60,8 +70,10 @@ public class BucketTest {
         Map<String, AttributeValue> expressionValueMap = new HashMap<>();
         expressionMap.put("user_id", "user_id=:userId");
         expressionMap.put("serial_number", "serial_number=:serialNumber");
+        expressionMap.put("tags", "contains(tags, :tag)");
         expressionValueMap.put(":userId", new AttributeValue().withN("1"));
-        expressionValueMap.put(":serialNumber", new AttributeValue().withS("sn_01"));
+        expressionValueMap.put(":serialNumber", new AttributeValue().withS("sn_02"));
+        expressionValueMap.put(":tag", new AttributeValue().withS("VEHICLE"));
 
         List<VideoLibrary> queryVideoLibraryList = bucket.query(expressionMap, Collections.emptyMap(), expressionValueMap, 0, 1000, null);
         log.info("queryVideoLibraryDOList {}", queryVideoLibraryList);
@@ -101,6 +113,10 @@ public class BucketTest {
         @BucketIndexField
         @DynamoDBAttribute(attributeName = "serial_number")
         private String serialNumber;
+
+        @BucketIndexField
+        @DynamoDBAttribute(attributeName = "tags")
+        private Set<String> tags;
 
         @DynamoDBAttribute(attributeName = "image_url")
         private String imageUrl;
