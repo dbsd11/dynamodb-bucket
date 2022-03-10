@@ -69,7 +69,7 @@ public class BucketMetaDataMapper {
 
             createTableRequest.setAttributeDefinitions(attributeDefinitionList);
 
-            createTableRequest.setProvisionedThroughput(new ProvisionedThroughput(10L, 10L));
+            createTableRequest.setProvisionedThroughput(new ProvisionedThroughput(100L, 100L));
 
             dynamoDB.createTable(createTableRequest);
         } catch (Exception e) {
