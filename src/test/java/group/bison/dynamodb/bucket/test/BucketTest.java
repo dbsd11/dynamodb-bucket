@@ -44,7 +44,7 @@ public class BucketTest {
                 .withCredentials(new AWSStaticCredentialsProvider(awsCredentials))
                 .build();
 
-        BucketApi<VideoLibrary> bucket = new SimpleBucket<VideoLibrary>("video_library", VideoLibrary.class, dynamoDB);
+        BucketApi<VideoLibrary> bucket = new SimpleBucket<VideoLibrary>("video_library", VideoLibrary.class, dynamoDB, null);
 
         VideoLibrary videoLibrary = VideoLibrary.builder().traceId(UUID.randomUUID().toString()).userId(1).timestamp(Long.valueOf(System.currentTimeMillis() / 1000).intValue()).serialNumber("sn_01")
                 .tags(new HashSet<String>() {{

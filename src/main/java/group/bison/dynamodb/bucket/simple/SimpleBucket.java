@@ -34,14 +34,16 @@ public class SimpleBucket<T> implements BucketApi<T> {
     private String tableName;
     private Class<T> itemCls;
     private AmazonDynamoDB dynamoDB;
+    private AmazonDynamoDB daxDynamoDB;
     private ItemParser<T> itemParser;
     private BucketMetaDataMapper bucketMetaDataMapper;
     private BucketDataMapper bucketDataMapper;
 
-    public SimpleBucket(String tableName, Class<T> itemCls, AmazonDynamoDB dynamoDB) {
+    public SimpleBucket(String tableName, Class<T> itemCls, AmazonDynamoDB dynamoDB, AmazonDynamoDB daxDynamoDB) {
         this.tableName = tableName;
         this.itemCls = itemCls;
         this.dynamoDB = dynamoDB;
+        this.daxDynamoDB = daxDynamoDB;
 
         init();
     }
@@ -54,13 +56,13 @@ public class SimpleBucket<T> implements BucketApi<T> {
                 .build());
         DynamoDBMapperTableModel<T> tableModel = mapper.getTableModel(itemCls);
         this.itemParser = new SimpleItemParser<>(tableModel);
-        this.bucketMetaDataMapper = new BucketMetaDataMapper("bucket-" + tableName, dynamoDB);
-        this.bucketDataMapper = new BucketDataMapper("bucket-" + tableName, dynamoDB);
+        this.bucketMetaDataMapper = new BucketMetaDataMapper("bucket-" + tableName, daxDynamoDB != null ? daxDynamoDB : dynamoDB);
+        this.bucketDataMapper = new BucketDataMapper("bucket-" + tableName, daxDynamoDB != null ? daxDynamoDB : dynamoDB);
 
         List<AttributeDefinition> attributeDefinitionList = new LinkedList<>();
         attributeDefinitionList.add(new AttributeDefinition().withAttributeName(KEY_BUCKET_ID).withAttributeType(ScalarAttributeType.S));
         attributeDefinitionList.add(new AttributeDefinition().withAttributeName(KEY_START_BUCKET_WINDOW).withAttributeType(ScalarAttributeType.N));
-        bucketMetaDataMapper.createBucketTable(attributeDefinitionList);
+        new BucketMetaDataMapper("bucket-" + tableName, dynamoDB).createBucketTable(attributeDefinitionList);
     }
 
     @Override
