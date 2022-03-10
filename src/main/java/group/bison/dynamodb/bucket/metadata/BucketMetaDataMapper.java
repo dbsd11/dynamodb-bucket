@@ -34,6 +34,7 @@ import static group.bison.dynamodb.bucket.common.Constants.KEY_BUCKET_ID;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_ITEM_COUNT;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_ITEM_MAP;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_START_BUCKET_WINDOW;
+import static group.bison.dynamodb.bucket.common.Constants.MAX_BUCKET_ITEM_COUNT;
 
 @Slf4j
 @NoArgsConstructor
@@ -45,6 +46,8 @@ public class BucketMetaDataMapper {
     private AmazonDynamoDB dynamoDB;
 
     private static Set<String> bucketIndexSet = new HashSet<>();
+
+    private static Map<String, Object> currentBucketWindowMap = new HashMap<>();
 
     public void createBucketTable(List<AttributeDefinition> attributeDefinitionList) {
         boolean tableExist = false;
@@ -116,7 +119,7 @@ public class BucketMetaDataMapper {
             return false;
         }
 
-        return (getItemResult == null || getItemResult.getItem() == null) ? false : Integer.valueOf(getItemResult.getItem().get(KEY_ITEM_COUNT).getN()) > 100;
+        return (getItemResult == null || getItemResult.getItem() == null) ? false : Integer.valueOf(getItemResult.getItem().get(KEY_ITEM_COUNT).getN()) >= MAX_BUCKET_ITEM_COUNT;
     }
 
     public <W> void createBucket(String bucketId, W startBucketWindow) {
@@ -130,8 +133,14 @@ public class BucketMetaDataMapper {
         bucketAttributeValueMap.put(KEY_ITEM_MAP, new AttributeValue().withM(Collections.emptyMap()));
         putItemRequest.setItem(bucketAttributeValueMap);
 
+        currentBucketWindowMap.put(bucketId, startBucketWindow);
+
         dynamoDB.putItem(putItemRequest);
         return;
+    }
+
+    public <W> W getCurrentBucketWindow(String bucketId) {
+        return (W) currentBucketWindowMap.get(bucketId);
     }
 
     public <W> void initIndex(String bucketId, W startBucketWindow, IndexCollection indexCollection) {

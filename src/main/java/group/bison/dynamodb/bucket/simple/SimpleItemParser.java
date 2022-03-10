@@ -2,6 +2,7 @@ package group.bison.dynamodb.bucket.simple;
 
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperTableModel;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
+import group.bison.dynamodb.bucket.common.domain.DataQueryParam;
 import group.bison.dynamodb.bucket.metadata.BucketItem;
 import group.bison.dynamodb.bucket.metadata.IndexCollection;
 import group.bison.dynamodb.bucket.parse.ItemParser;
@@ -148,18 +149,18 @@ public class SimpleItemParser<T> implements ItemParser<T> {
         return String.join("_", String.valueOf(hashKey), String.valueOf(rangeKey));
     }
 
-    public List<String> getQueryBucketIdList(Map<String, String> expressionMap, Map<String, String> expressionNameMap, Map<String, AttributeValue> expressionValueMap) {
+    public List<String> getQueryBucketIdList(DataQueryParam dataQueryParam) {
         Field bucketIdField = Arrays.asList(tableModel.targetType().getDeclaredFields()).stream().filter(field -> field.getAnnotation(BucketIdField.class) != null).findAny().orElse(null);
         if (bucketIdField == null) {
             return Collections.emptyList();
         }
 
-        String bucketIdExpression = expressionMap.entrySet().stream().filter(expressionEntry -> expressionEntry.getKey().replaceAll("_", "").equalsIgnoreCase(bucketIdField.getName())).map(expressionEntry -> expressionEntry.getValue()).findAny().orElse(null);
+        String bucketIdExpression = dataQueryParam.getExpressionMap().entrySet().stream().filter(expressionEntry -> expressionEntry.getKey().replaceAll("_", "").equalsIgnoreCase(bucketIdField.getName())).map(expressionEntry -> expressionEntry.getValue()).findAny().orElse(null);
         if (StringUtils.isEmpty(bucketIdExpression)) {
             return Collections.emptyList();
         }
 
-        List<String> bucketIdList = expressionValueMap.entrySet().stream().map(expressionValueEntry -> {
+        List<String> bucketIdList = dataQueryParam.getExpressionValueMap().entrySet().stream().map(expressionValueEntry -> {
             if (bucketIdExpression.contains(expressionValueEntry.getKey())) {
                 return StringUtils.defaultString(expressionValueEntry.getValue().getS(), expressionValueEntry.getValue().getN());
             }
@@ -168,32 +169,32 @@ public class SimpleItemParser<T> implements ItemParser<T> {
         return bucketIdList;
     }
 
-    public Pair<Long, Long> getQueryTimestampRange(Map<String, String> expressionMap, Map<String, String> expressionNameMap, Map<String, AttributeValue> expressionValueMap) {
+    public Pair<Long, Long> getQueryTimestampRange(DataQueryParam dataQueryParam) {
         Field itemTimestampField = Arrays.asList(tableModel.targetType().getDeclaredFields()).stream().filter(field -> field.getAnnotation(ItemTimestampField.class) != null).findAny().orElse(null);
         if (itemTimestampField == null) {
-            return Pair.of(0L, System.currentTimeMillis() / 1000);
+            return Pair.of(0L, Long.MAX_VALUE);
         }
 
-        String itemTimestampExpression = expressionMap.entrySet().stream().filter(expressionEntry -> expressionEntry.getKey().replaceAll("_", "").equalsIgnoreCase(itemTimestampField.getName())).map(expressionEntry -> expressionEntry.getValue()).findAny().orElse(null);
+        String itemTimestampExpression = dataQueryParam.getExpressionMap().entrySet().stream().filter(expressionEntry -> expressionEntry.getKey().replaceAll("_", "").equalsIgnoreCase(itemTimestampField.getName())).map(expressionEntry -> expressionEntry.getValue()).findAny().orElse(null);
         if (StringUtils.isEmpty(itemTimestampExpression)) {
-            return Pair.of(0L, System.currentTimeMillis() / 1000);
+            return Pair.of(0L, Long.MAX_VALUE);
         }
 
-        List<Long> bucketTimestampList = expressionValueMap.entrySet().stream().map(expressionValueEntry -> {
+        List<Long> bucketTimestampList = dataQueryParam.getExpressionValueMap().entrySet().stream().map(expressionValueEntry -> {
             if (itemTimestampExpression.contains(expressionValueEntry.getKey())) {
                 return Long.valueOf(expressionValueEntry.getValue().getN());
             }
             return null;
         }).filter(obj -> obj != null).collect(Collectors.toList());
         Long minItemTimestamp = bucketTimestampList.stream().mapToLong(Long::longValue).min().orElse(0);
-        Long maxItemTimestamp = bucketTimestampList.stream().mapToLong(Long::longValue).max().orElse(System.currentTimeMillis() / 1000);
+        Long maxItemTimestamp = bucketTimestampList.stream().mapToLong(Long::longValue).max().orElse(Long.MAX_VALUE);
         return Pair.of(minItemTimestamp, maxItemTimestamp);
     }
 
-    public IndexCollection getQueryIndexCollection(Map<String, String> expressionMap, Map<String, String> expressionNameMap, Map<String, AttributeValue> expressionValueMap) {
+    public IndexCollection getQueryIndexCollection(DataQueryParam dataQueryParam) {
         IndexCollection queryIndexCollection = new IndexCollection();
 
-        expressionMap.entrySet().forEach(expressionEntry -> {
+        dataQueryParam.getExpressionMap().entrySet().forEach(expressionEntry -> {
             Field bucketIndexField = Arrays.asList(tableModel.targetType().getDeclaredFields()).stream().filter(field -> field.getAnnotation(BucketIndexField.class) != null).filter(field -> expressionEntry.getKey().replaceAll("_", "").equalsIgnoreCase(field.getName())).findAny().orElse(null);
             if (bucketIndexField == null) {
                 return;
@@ -202,7 +203,7 @@ public class SimpleItemParser<T> implements ItemParser<T> {
             queryIndexCollection.getIndexMap().put(expressionEntry.getKey(), new IndexCollection.InvertedIndex());
 
             String expression = expressionEntry.getValue();
-            expressionValueMap.entrySet().forEach(expressionValueEntry -> {
+            dataQueryParam.getExpressionValueMap().entrySet().forEach(expressionValueEntry -> {
                 if (!expression.contains(expressionValueEntry.getKey())) {
                     return;
                 }

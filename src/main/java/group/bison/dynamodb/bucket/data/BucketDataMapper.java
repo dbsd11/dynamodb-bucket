@@ -2,20 +2,19 @@ package group.bison.dynamodb.bucket.data;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
-import com.amazonaws.services.dynamodbv2.model.GetItemRequest;
-import com.amazonaws.services.dynamodbv2.model.GetItemResult;
 import com.amazonaws.services.dynamodbv2.model.QueryRequest;
 import com.amazonaws.services.dynamodbv2.model.QueryResult;
 import com.amazonaws.services.dynamodbv2.model.UpdateItemRequest;
 import group.bison.dynamodb.bucket.common.Constants;
+import group.bison.dynamodb.bucket.common.domain.DataQueryParam;
 import group.bison.dynamodb.bucket.metadata.BucketItem;
 import group.bison.dynamodb.bucket.metadata.IndexCollection;
-import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -25,24 +24,38 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static group.bison.dynamodb.bucket.common.Constants.KEY_BIZ_ID;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_BUCKET_ID;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_ITEM_MAP;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_START_BUCKET_WINDOW;
+import static group.bison.dynamodb.bucket.common.Constants.KEY_TTL_TIMESTAMP;
+import static group.bison.dynamodb.bucket.common.Constants.MAX_BUCKET_ITEM_COUNT;
+import static group.bison.dynamodb.bucket.common.Constants.SCAN_MAX_COUNT;
 
 @NoArgsConstructor
-@AllArgsConstructor
 public class BucketDataMapper {
 
     private String bucketTableName;
 
     private AmazonDynamoDB dynamoDB;
 
-    private static final String KEY_BIZ_ID = "bizId";
+    private ExpressionFilter expressionFilter;
 
-    private static final String KEY_TTL_TIMESTAMP = "ttl_timestamp";
+    private BucketDataQueryFetcher bucketDataQueryFetcher;
+
+    public BucketDataMapper(String bucketTableName, AmazonDynamoDB dynamoDB, ExpressionFilter expressionFilter) {
+        this.bucketTableName = bucketTableName;
+        this.dynamoDB = dynamoDB;
+        this.expressionFilter = expressionFilter;
+
+        init();
+    }
+
+    void init() {
+        this.bucketDataQueryFetcher = new BucketDataQueryFetcher(bucketTableName, dynamoDB, expressionFilter);
+    }
 
     public void insert(BucketItem bucketItem) {
         // 需保存bizId
@@ -244,46 +257,6 @@ public class BucketDataMapper {
         updateExpressionBuilder.append(",");
         attributeValueMap.put(":one", new AttributeValue().withN("1"));
 
-
-//        BucketItem existBucketItem = queryOne(bucketItem.getBucketId(), bucketItem.getBucketWindow(), bucketItem.getItemId());
-//        if (existBucketItem == null) {
-//            return;
-//        }
-//        AtomicInteger i = new AtomicInteger();
-//        existBucketItem.getItemAttributeValueMap().entrySet().forEach(itemAttributeValueEntry -> {
-//            if (StringUtils.isNotEmpty(itemAttributeValueEntry.getValue().getS())) {
-//                String itemValueKey = String.join("", "#", String.valueOf(i.incrementAndGet()));
-//                updateExpressionBuilder.append(String.join("", itemAttributeValueEntry.getKey(), ".", itemValueKey, ".", "#itemId", " = ", ":emptyMap"));
-//                updateExpressionBuilder.append(",");
-//                attributeNameMap.put(itemValueKey, itemAttributeValueEntry.getValue().getS());
-//            }
-//
-//            if (StringUtils.isNotEmpty(itemAttributeValueEntry.getValue().getN())) {
-//                String itemValueKey = String.join("", "#", String.valueOf(i.incrementAndGet()));
-//                updateExpressionBuilder.append(String.join("", itemAttributeValueEntry.getKey(), ".", itemValueKey, ".", "#itemId", " = ", ":emptyMap"));
-//                updateExpressionBuilder.append(",");
-//                attributeNameMap.put(itemValueKey, itemAttributeValueEntry.getValue().getN());
-//            }
-//
-//            if (CollectionUtils.isNotEmpty(itemAttributeValueEntry.getValue().getSS())) {
-//                itemAttributeValueEntry.getValue().getSS().forEach(value -> {
-//                    String itemValueKey = String.join("", "#", String.valueOf(i.incrementAndGet()));
-//                    updateExpressionBuilder.append(String.join("", itemAttributeValueEntry.getKey(), ".", itemValueKey, ".", "#itemId", " = ", ":emptyMap"));
-//                    updateExpressionBuilder.append(",");
-//                    attributeNameMap.put(itemValueKey, value);
-//                });
-//            }
-//
-//            if (CollectionUtils.isNotEmpty(itemAttributeValueEntry.getValue().getNS())) {
-//                itemAttributeValueEntry.getValue().getNS().forEach(value -> {
-//                    String itemValueKey = String.join("", "#", String.valueOf(i.incrementAndGet()));
-//                    updateExpressionBuilder.append(String.join("", itemAttributeValueEntry.getKey(), ".", itemValueKey, ".", "#itemId", " = ", ":emptyMap"));
-//                    updateExpressionBuilder.append(",");
-//                    attributeNameMap.put(itemValueKey, value);
-//                });
-//            }
-//        });
-
         updateExpressionBuilder.deleteCharAt(updateExpressionBuilder.length() - 1);
 
         updateItemRequest.setUpdateExpression(updateExpressionBuilder.toString());
@@ -294,204 +267,187 @@ public class BucketDataMapper {
     }
 
     public <W> BucketItem queryOne(String bucketId, W startBucketWindow, String itemId) {
-        GetItemRequest getItemRequest = new GetItemRequest();
-        getItemRequest.setTableName(bucketTableName);
-
-        Map<String, AttributeValue> bucketKeyAttributeValueMap = new HashMap<>();
-        bucketKeyAttributeValueMap.put(KEY_BUCKET_ID, new AttributeValue().withS(bucketId));
-        bucketKeyAttributeValueMap.put(KEY_START_BUCKET_WINDOW, startBucketWindow instanceof String ? new AttributeValue().withS((String) startBucketWindow) : new AttributeValue().withN(String.valueOf(startBucketWindow)));
-        getItemRequest.setKey(bucketKeyAttributeValueMap);
-
-        getItemRequest.setProjectionExpression(String.join("", KEY_ITEM_MAP, ".", "#itemId"));
-
-        getItemRequest.setExpressionAttributeNames(Collections.singletonMap("#itemId", itemId));
-
-        GetItemResult getItemResult = dynamoDB.getItem(getItemRequest);
-        return parseGetItemResult(getItemResult).get(itemId);
+        List<BucketItem> bucketItemList = bucketDataQueryFetcher.fetch(bucketId, startBucketWindow instanceof String ? new AttributeValue().withS((String) startBucketWindow) : new AttributeValue().withN(String.valueOf(startBucketWindow)), Collections.singleton(itemId), null);
+        return CollectionUtils.isNotEmpty(bucketItemList) ? bucketItemList.get(0) : null;
     }
 
-    public <W> List<BucketItem> query(String bucketId, W startBucketWindow, W endBucketWindow, IndexCollection indexCollection, int from, int to) {
-        if (to <= from) {
+    public <W> List<BucketItem> query(String bucketId, W startBucketWindow, W endBucketWindow, IndexCollection indexCollection, DataQueryParam dataQueryParam) {
+        if (dataQueryParam == null) {
             return Collections.emptyList();
         }
 
+        if (dataQueryParam.getTo() <= dataQueryParam.getFrom()) {
+            return Collections.emptyList();
+        }
+
+        // 返回的bucketItemList结果
+        List<BucketItem> bucketItemList = new LinkedList<>();
+
+        // 尝试直接在最新的bucket查询
+        boolean eagerFetched = false;
+        if (dataQueryParam.getTo() < MAX_BUCKET_ITEM_COUNT) {
+            eagerFetched = true;
+            List<BucketItem> matchBucketItemList = bucketDataQueryFetcher.fetch(bucketId, endBucketWindow instanceof String ? new AttributeValue().withS((String) endBucketWindow) : new AttributeValue().withN(String.valueOf(endBucketWindow)), dataQueryParam);
+            if (CollectionUtils.isNotEmpty(matchBucketItemList)) {
+                bucketItemList.addAll(matchBucketItemList);
+            }
+        }
+        if (bucketItemList.size() >= dataQueryParam.getTo()) {
+            bucketItemList = new ArrayList<>(bucketItemList);
+            return bucketItemList.subList(Math.min(bucketItemList.size(), dataQueryParam.getFrom()), Math.min(bucketItemList.size(), dataQueryParam.getTo()));
+        }
+
+        // 根据索引行为不同走不同的逻辑
         if (indexCollection == null) {
-            // todo get all item
-            return Collections.emptyList();
-        }
+            // 直接遍历bucket
+            QueryRequest invertIndexQueryRequest = new QueryRequest();
+            invertIndexQueryRequest.setTableName(bucketTableName);
+            invertIndexQueryRequest.setConsistentRead(false);
+            invertIndexQueryRequest.setScanIndexForward(false);
 
-        // 先通过倒排索引筛选查询itemId集合
-        QueryRequest invertIndexQueryRequest = new QueryRequest();
-        invertIndexQueryRequest.setTableName(bucketTableName);
-        invertIndexQueryRequest.setConsistentRead(false);
-        invertIndexQueryRequest.setScanIndexForward(false);
+            Map<String, String> invertIndexAttributeNameMap = new HashMap<>();
+            Map<String, AttributeValue> invertIndexAttributeValueMap = new HashMap<>();
 
-        Map<String, String> invertIndexAttributeNameMap = new HashMap<>();
-        Map<String, AttributeValue> invertIndexAttributeValueMap = new HashMap<>();
+            invertIndexQueryRequest.setKeyConditionExpression(String.join("", KEY_BUCKET_ID, "=", ":bucketId", " AND ", KEY_START_BUCKET_WINDOW, " BETWEEN ", ":startBucketWindow", " AND ", ":endBucketWindow"));
+            invertIndexAttributeValueMap.put(":bucketId", new AttributeValue().withS(bucketId));
+            invertIndexAttributeValueMap.put(":startBucketWindow", startBucketWindow instanceof String ? new AttributeValue().withS((String) startBucketWindow) : new AttributeValue().withN(String.valueOf(startBucketWindow)));
+            invertIndexAttributeValueMap.put(":endBucketWindow", endBucketWindow instanceof String ? new AttributeValue().withS((String) endBucketWindow) : new AttributeValue().withN(String.valueOf(endBucketWindow)));
 
-        invertIndexQueryRequest.setKeyConditionExpression(String.join("", KEY_BUCKET_ID, "=", ":bucketId", " AND ", KEY_START_BUCKET_WINDOW, " BETWEEN ", ":startBucketWindow", " AND ", ":endBucketWindow"));
-        invertIndexAttributeValueMap.put(":bucketId", new AttributeValue().withS(bucketId));
-        invertIndexAttributeValueMap.put(":startBucketWindow", startBucketWindow instanceof String ? new AttributeValue().withS((String) startBucketWindow) : new AttributeValue().withN(String.valueOf(startBucketWindow)));
-        invertIndexAttributeValueMap.put(":endBucketWindow", endBucketWindow instanceof String ? new AttributeValue().withS((String) endBucketWindow) : new AttributeValue().withN(String.valueOf(endBucketWindow)));
+            StringBuilder invertIndexProjectExpression = new StringBuilder();
+            invertIndexProjectExpression.append(KEY_BUCKET_ID).append(",").append(KEY_START_BUCKET_WINDOW);
 
-        StringBuilder invertIndexProjectExpression = new StringBuilder();
-        invertIndexProjectExpression.append(KEY_BUCKET_ID).append(",").append(KEY_START_BUCKET_WINDOW).append(",");
-        indexCollection.getIndexMap().entrySet().forEach(indexEntry -> {
-            if (MapUtils.isEmpty(indexEntry.getValue().getInvertedIndexValueMap())) {
-                return;
+            invertIndexQueryRequest.setProjectionExpression(invertIndexProjectExpression.toString());
+            invertIndexQueryRequest.setExpressionAttributeNames(invertIndexAttributeNameMap);
+            invertIndexQueryRequest.setExpressionAttributeValues(invertIndexAttributeValueMap);
+
+            QueryResult queryResult = dynamoDB.query(invertIndexQueryRequest);
+            List<Map<String, AttributeValue>> invertIndexMapList = queryResult.getItems();
+
+            Iterator<Map<String, AttributeValue>> invertIndexMapListIterator = invertIndexMapList.iterator();
+            if (eagerFetched && invertIndexMapListIterator.hasNext()) {
+                invertIndexMapListIterator.next();
             }
 
-            String indexKey = indexEntry.getKey();
-            AtomicInteger i = new AtomicInteger();
-            indexEntry.getValue().getInvertedIndexValueMap().entrySet().forEach(invertedIndexValueEntry -> {
-                String indexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
-                invertIndexProjectExpression.append(String.join("", indexKey, ".", indexSubKey));
-                invertIndexProjectExpression.append(",");
-                invertIndexAttributeNameMap.put(indexSubKey, invertedIndexValueEntry.getKey());
-            });
-        });
+            while (invertIndexMapListIterator.hasNext()) {
+                Map<String, AttributeValue> invertIndexMap = invertIndexMapListIterator.next();
 
-        invertIndexProjectExpression.deleteCharAt(invertIndexProjectExpression.length() - 1);
+                AttributeValue bucketWindowAttributeValue = invertIndexMap.get(KEY_START_BUCKET_WINDOW);
 
-        invertIndexQueryRequest.setProjectionExpression(invertIndexProjectExpression.toString());
-        invertIndexQueryRequest.setExpressionAttributeNames(invertIndexAttributeNameMap);
-        invertIndexQueryRequest.setExpressionAttributeValues(invertIndexAttributeValueMap);
+                List<BucketItem> matchBucketItemList = bucketDataQueryFetcher.fetch(bucketId, bucketWindowAttributeValue, dataQueryParam);
 
-        QueryResult queryResult = dynamoDB.query(invertIndexQueryRequest);
-
-        List<Map<String, AttributeValue>> invertIndexMapList = queryResult.getItems();
-
-        // 倒排索引命中的itemId集合
-        List<String> itemIdList = new LinkedList<>();
-        Map<String, AttributeValue> itemId2BucketWindowMap = new HashMap<>();
-
-        Iterator<Map<String, AttributeValue>> invertIndexMapListIterator = invertIndexMapList.iterator();
-        while (invertIndexMapListIterator.hasNext()) {
-            if (itemIdList.size() >= (to - from)) {
-                break;
-            }
-
-            Map<String, AttributeValue> invertIndexMap = invertIndexMapListIterator.next();
-
-            AttributeValue bucketWindowAttributeValue = invertIndexMap.get(KEY_START_BUCKET_WINDOW);
-
-            Set<String> bucketItemIdSet = new HashSet<>();
-
-            invertIndexMap.entrySet().forEach(invertIndexEntry -> {
-                if (!indexCollection.getIndexMap().containsKey(invertIndexEntry.getKey())) {
-                    return;
+                if (CollectionUtils.isNotEmpty(matchBucketItemList)) {
+                    bucketItemList.addAll(matchBucketItemList);
                 }
-                if (MapUtils.isEmpty(invertIndexEntry.getValue().getM()) || !invertIndexEntry.getValue().getM().keySet().containsAll(indexCollection.getIndexMap().get(invertIndexEntry.getKey()).getInvertedIndexValueMap().keySet())) {
-                    bucketItemIdSet.clear();
+
+                if (bucketItemList.size() >= dataQueryParam.getTo()) {
+                    break;
+                }
+            }
+        } else {
+            // 先通过倒排索引筛选查询itemId集合
+            QueryRequest invertIndexQueryRequest = new QueryRequest();
+            invertIndexQueryRequest.setTableName(bucketTableName);
+            invertIndexQueryRequest.setConsistentRead(false);
+            invertIndexQueryRequest.setScanIndexForward(false);
+
+            Map<String, String> invertIndexAttributeNameMap = new HashMap<>();
+            Map<String, AttributeValue> invertIndexAttributeValueMap = new HashMap<>();
+
+            invertIndexQueryRequest.setKeyConditionExpression(String.join("", KEY_BUCKET_ID, "=", ":bucketId", " AND ", KEY_START_BUCKET_WINDOW, " BETWEEN ", ":startBucketWindow", " AND ", ":endBucketWindow"));
+            invertIndexAttributeValueMap.put(":bucketId", new AttributeValue().withS(bucketId));
+            invertIndexAttributeValueMap.put(":startBucketWindow", startBucketWindow instanceof String ? new AttributeValue().withS((String) startBucketWindow) : new AttributeValue().withN(String.valueOf(startBucketWindow)));
+            invertIndexAttributeValueMap.put(":endBucketWindow", endBucketWindow instanceof String ? new AttributeValue().withS((String) endBucketWindow) : new AttributeValue().withN(String.valueOf(endBucketWindow)));
+
+            StringBuilder invertIndexProjectExpression = new StringBuilder();
+            invertIndexProjectExpression.append(KEY_BUCKET_ID).append(",").append(KEY_START_BUCKET_WINDOW).append(",");
+            indexCollection.getIndexMap().entrySet().forEach(indexEntry -> {
+                if (MapUtils.isEmpty(indexEntry.getValue().getInvertedIndexValueMap())) {
                     return;
                 }
 
-                invertIndexEntry.getValue().getM().values().forEach(invertIndexValue -> {
-                    List<String> validItemIdList = invertIndexValue.getM().entrySet().stream().filter(entry -> "1".equals(entry.getValue().getN())).map(entry -> entry.getKey()).collect(Collectors.toList());
-                    if (CollectionUtils.isEmpty(bucketItemIdSet)) {
-                        bucketItemIdSet.addAll(validItemIdList);
-                    } else {
-                        bucketItemIdSet.retainAll(validItemIdList);
-                    }
+                String indexKey = indexEntry.getKey();
+                AtomicInteger i = new AtomicInteger();
+                indexEntry.getValue().getInvertedIndexValueMap().entrySet().forEach(invertedIndexValueEntry -> {
+                    String indexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
+                    invertIndexProjectExpression.append(String.join("", indexKey, ".", indexSubKey));
+                    invertIndexProjectExpression.append(",");
+                    invertIndexAttributeNameMap.put(indexSubKey, invertedIndexValueEntry.getKey());
                 });
             });
 
-            itemIdList.addAll(bucketItemIdSet);
-            bucketItemIdSet.forEach(bucketItemId -> itemId2BucketWindowMap.put(bucketItemId, bucketWindowAttributeValue));
-        }
+            invertIndexProjectExpression.deleteCharAt(invertIndexProjectExpression.length() - 1);
 
-        // 没有匹配的itemId或者超过匹配集合大小
-        if (CollectionUtils.isEmpty(itemIdList) || (from >= itemIdList.size())) {
-            return Collections.emptyList();
-        }
+            invertIndexQueryRequest.setProjectionExpression(invertIndexProjectExpression.toString());
+            invertIndexQueryRequest.setExpressionAttributeNames(invertIndexAttributeNameMap);
+            invertIndexQueryRequest.setExpressionAttributeValues(invertIndexAttributeValueMap);
 
-        List<String> queryItemIdList = itemIdList.subList(from, Math.min(itemIdList.size(), to));
+            QueryResult queryResult = dynamoDB.query(invertIndexQueryRequest);
+            List<Map<String, AttributeValue>> invertIndexMapList = queryResult.getItems();
 
-        // 按照bucketWindow分组
-        Map<String, AttributeValue> queryBucketWindowMap = new HashMap<>();
-        Map<String, List<String>> queryBucketWindowItemIdMap = new HashMap<>();
-        queryItemIdList.stream().forEach(queryItemId -> {
-            AttributeValue queryBucketWindow = itemId2BucketWindowMap.get(queryItemId);
-            String queryBucketWindowKey = startBucketWindow instanceof String ? queryBucketWindow.getS() : queryBucketWindow.getN();
-            queryBucketWindowMap.put(queryBucketWindowKey, queryBucketWindow);
-
-            if (!queryBucketWindowItemIdMap.containsKey(queryBucketWindowKey)) {
-                queryBucketWindowItemIdMap.put(queryBucketWindowKey, new LinkedList<>());
-            }
-            queryBucketWindowItemIdMap.get(queryBucketWindowKey).add(queryItemId);
-        });
-
-        List<BucketItem> bucketItemList = queryBucketWindowMap.entrySet().stream().flatMap(queryBucketWindowEntry -> {
-            List<String> bucketItemIdList = queryBucketWindowItemIdMap.get(queryBucketWindowEntry.getKey());
-
-            // begin query item
-            GetItemRequest getItemRequest = new GetItemRequest();
-            getItemRequest.setTableName(bucketTableName);
-            getItemRequest.setConsistentRead(false);
-
-            Map<String, String> itemQueryAttributeNameMap = new HashMap<>();
-
-            Map<String, AttributeValue> bucketKeyAttributeValueMap = new HashMap<>();
-            bucketKeyAttributeValueMap.put(KEY_BUCKET_ID, new AttributeValue().withS(bucketId));
-            bucketKeyAttributeValueMap.put(KEY_START_BUCKET_WINDOW, queryBucketWindowEntry.getValue());
-            getItemRequest.setKey(bucketKeyAttributeValueMap);
-
-            StringBuilder projectExpressionBuilder = new StringBuilder();
-            AtomicInteger i = new AtomicInteger();
-
-            bucketItemIdList.forEach(bucketItemId -> {
-                String itemIdKey = String.join("", "#itemId", String.valueOf(i.incrementAndGet()));
-                projectExpressionBuilder.append(String.join("", KEY_ITEM_MAP, ".", itemIdKey));
-                projectExpressionBuilder.append(",");
-                itemQueryAttributeNameMap.put(itemIdKey, bucketItemId);
-                return;
-            });
-
-            projectExpressionBuilder.deleteCharAt(projectExpressionBuilder.length() - 1);
-
-            getItemRequest.setProjectionExpression(projectExpressionBuilder.toString());
-            getItemRequest.setExpressionAttributeNames(itemQueryAttributeNameMap);
-
-            GetItemResult getItemResult = dynamoDB.getItem(getItemRequest);
-            return parseGetItemResult(getItemResult).values().stream();
-        }).filter(obj -> obj != null).collect(Collectors.toList());
-
-        return bucketItemList;
-    }
-
-    Map<String, BucketItem> parseGetItemResult(GetItemResult getItemResult) {
-        if (getItemResult == null || MapUtils.isEmpty(getItemResult.getItem()) || !getItemResult.getItem().containsKey(KEY_ITEM_MAP)) {
-            return Collections.emptyMap();
-        }
-
-        Map<String, BucketItem> bucketItemMap = getItemResult.getItem().get(KEY_ITEM_MAP).getM().entrySet().stream().map(itemAttributeValueEntry -> {
-            String itemId = itemAttributeValueEntry.getKey();
-            Map<String, AttributeValue> attributeValueMap = itemAttributeValueEntry.getValue().getM();
-            if (MapUtils.isEmpty(attributeValueMap)) {
-                return null;
+            Iterator<Map<String, AttributeValue>> invertIndexMapListIterator = invertIndexMapList.iterator();
+            if (eagerFetched && invertIndexMapListIterator.hasNext()) {
+                invertIndexMapListIterator.next();
             }
 
-
-            if (MapUtils.isEmpty(itemAttributeValueEntry.getValue().getM())) {
-                return null;
-            }
-
-            BucketItem bucketItem = new BucketItem() {
-                @Override
-                public String getBucketId() {
-                    return null;
+            // 倒排索引命中的itemId统计
+            AtomicInteger scannedCount = new AtomicInteger();
+            while (invertIndexMapListIterator.hasNext()) {
+                if (scannedCount.get() >= SCAN_MAX_COUNT) {
+                    break;
                 }
 
-                @Override
-                public <W> W getBucketWindow() {
-                    return null;
+                Map<String, AttributeValue> invertIndexMap = invertIndexMapListIterator.next();
+
+                AttributeValue bucketWindowAttributeValue = invertIndexMap.get(KEY_START_BUCKET_WINDOW);
+
+                Set<String> bucketItemIdSet = new HashSet<>();
+
+                invertIndexMap.entrySet().forEach(invertIndexEntry -> {
+                    if (!indexCollection.getIndexMap().containsKey(invertIndexEntry.getKey())) {
+                        return;
+                    }
+                    if (MapUtils.isEmpty(invertIndexEntry.getValue().getM()) || !invertIndexEntry.getValue().getM().keySet().containsAll(indexCollection.getIndexMap().get(invertIndexEntry.getKey()).getInvertedIndexValueMap().keySet())) {
+                        bucketItemIdSet.clear();
+                        return;
+                    }
+
+                    invertIndexEntry.getValue().getM().values().forEach(invertIndexValue -> {
+                        List<String> validItemIdList = invertIndexValue.getM().entrySet().stream().filter(entry -> "1".equals(entry.getValue().getN())).map(entry -> entry.getKey()).collect(Collectors.toList());
+                        if (CollectionUtils.isEmpty(bucketItemIdSet)) {
+                            bucketItemIdSet.addAll(validItemIdList);
+                        } else {
+                            bucketItemIdSet.retainAll(validItemIdList);
+                        }
+                    });
+                });
+
+                if (bucketItemIdSet.size() == 0) {
+                    continue;
                 }
-            };
-            bucketItem.setItemId(itemId);
-            bucketItem.setBizId(attributeValueMap.get(KEY_BIZ_ID).getS());
-            bucketItem.setItemAttributeValueMap(attributeValueMap);
-            return bucketItem;
-        }).filter(obj -> obj != null).collect(Collectors.toMap(BucketItem::getItemId, Function.identity()));
-        return bucketItemMap;
+
+                scannedCount.getAndAdd(bucketItemIdSet.size());
+
+                // begin query item
+                if (MapUtils.isNotEmpty(dataQueryParam.getExpressionMap())) {
+                    Map<String, String> expressionMap = new HashMap<>(dataQueryParam.getExpressionMap());
+                    indexCollection.getIndexMap().keySet().forEach(index -> {
+                        expressionMap.remove(index);
+                    });
+                    dataQueryParam.setExpressionMap(expressionMap);
+                }
+
+                List<BucketItem> matchBucketItemList = bucketDataQueryFetcher.fetch(bucketId, bucketWindowAttributeValue, bucketItemIdSet, dataQueryParam);
+                if (CollectionUtils.isNotEmpty(matchBucketItemList)) {
+                    bucketItemList.addAll(matchBucketItemList);
+                }
+
+                if (bucketItemList.size() >= dataQueryParam.getTo()) {
+                    break;
+                }
+            }
+        }
+
+        bucketItemList = new ArrayList<>(bucketItemList);
+        return bucketItemList.subList(Math.min(bucketItemList.size(), dataQueryParam.getFrom()), Math.min(bucketItemList.size(), dataQueryParam.getTo()));
     }
 }

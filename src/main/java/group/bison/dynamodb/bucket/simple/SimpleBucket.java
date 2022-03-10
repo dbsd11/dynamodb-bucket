@@ -6,9 +6,9 @@ import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperConfig;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapperTableModel;
 import com.amazonaws.services.dynamodbv2.model.AttributeDefinition;
-import com.amazonaws.services.dynamodbv2.model.AttributeValue;
 import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType;
 import group.bison.dynamodb.bucket.api.BucketApi;
+import group.bison.dynamodb.bucket.common.domain.DataQueryParam;
 import group.bison.dynamodb.bucket.data.BucketDataMapper;
 import group.bison.dynamodb.bucket.metadata.BucketItem;
 import group.bison.dynamodb.bucket.metadata.BucketMetaDataMapper;
@@ -17,11 +17,11 @@ import group.bison.dynamodb.bucket.parse.ItemParser;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.springframework.beans.BeanUtils;
 
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -57,7 +57,7 @@ public class SimpleBucket<T> implements BucketApi<T> {
         DynamoDBMapperTableModel<T> tableModel = mapper.getTableModel(itemCls);
         this.itemParser = new SimpleItemParser<>(tableModel);
         this.bucketMetaDataMapper = new BucketMetaDataMapper("bucket-" + tableName, daxDynamoDB != null ? daxDynamoDB : dynamoDB);
-        this.bucketDataMapper = new BucketDataMapper("bucket-" + tableName, daxDynamoDB != null ? daxDynamoDB : dynamoDB);
+        this.bucketDataMapper = new BucketDataMapper("bucket-" + tableName, daxDynamoDB != null ? daxDynamoDB : dynamoDB, new SimpleExpressionFilter());
 
         List<AttributeDefinition> attributeDefinitionList = new LinkedList<>();
         attributeDefinitionList.add(new AttributeDefinition().withAttributeName(KEY_BUCKET_ID).withAttributeType(ScalarAttributeType.S));
@@ -142,17 +142,21 @@ public class SimpleBucket<T> implements BucketApi<T> {
     }
 
     @Override
-    public List<T> query(Map<String, String> expressionMap, Map<String, String> expressionNameMap, Map<String, AttributeValue> expressionValueMap, int from, int to, T latestItem) {
-        if (to <= from) {
+    public List<T> query(DataQueryParam dataQueryParam, T latestItem) {
+        if (dataQueryParam == null) {
             return Collections.emptyList();
         }
 
-        List<String> queryBucketIdList = itemParser instanceof SimpleItemParser ? ((SimpleItemParser<T>) itemParser).getQueryBucketIdList(expressionMap, expressionNameMap, expressionValueMap) : null;
+        if (dataQueryParam.getTo() <= dataQueryParam.getFrom()) {
+            return Collections.emptyList();
+        }
+
+        List<String> queryBucketIdList = itemParser instanceof SimpleItemParser ? ((SimpleItemParser<T>) itemParser).getQueryBucketIdList(dataQueryParam) : null;
         if (CollectionUtils.isEmpty(queryBucketIdList)) {
             return Collections.emptyList();
         }
 
-        Pair<Long, Long> queryTimestampRange = itemParser instanceof SimpleItemParser ? ((SimpleItemParser<T>) itemParser).getQueryTimestampRange(expressionMap, expressionNameMap, expressionValueMap) : null;
+        Pair<Long, Long> queryTimestampRange = itemParser instanceof SimpleItemParser ? ((SimpleItemParser<T>) itemParser).getQueryTimestampRange(dataQueryParam) : null;
         if (queryTimestampRange == null) {
             return Collections.emptyList();
         }
@@ -166,21 +170,33 @@ public class SimpleBucket<T> implements BucketApi<T> {
             lastTimestampAtom.set(lastTimestamp);
         }
 
-        IndexCollection queryIndexCollection = ((SimpleItemParser<T>) itemParser).getQueryIndexCollection(expressionMap, expressionNameMap, expressionValueMap);
+        IndexCollection queryIndexCollection = ((SimpleItemParser<T>) itemParser).getQueryIndexCollection(dataQueryParam);
 
         List<T> itemList = new LinkedList<>();
         queryBucketIdList.stream().sorted(String::compareTo).filter(queryBucketId -> StringUtils.isNotEmpty(lastBucketIdAtom.get()) ? queryBucketId.compareTo(lastBucketIdAtom.get()) >= 0 : true).forEach(queryBucketId -> {
-            if (itemList.size() >= (to - from)) {
+            if (itemList.size() >= (dataQueryParam.getTo() - dataQueryParam.getFrom())) {
                 return;
             }
 
-            List<BucketItem> queryBucketItemList = bucketDataMapper.query(queryBucketId, queryTimestampRange.getLeft() / (60 * 60), Math.min(queryTimestampRange.getRight(), lastTimestampAtom.get() != null ? lastTimestampAtom.get() : Long.MAX_VALUE) / (60 * 60), queryIndexCollection, Math.max(from - itemList.size(), 0), to - itemList.size());
+            Long startBucketWindow = queryTimestampRange.getLeft() / (60 * 60);
+            Long endBucketWindow = Math.min(queryTimestampRange.getRight(), lastTimestampAtom.get() != null ? lastTimestampAtom.get() : Long.MAX_VALUE) / (60 * 60);
+            Object currentBucketWindow = bucketMetaDataMapper.getCurrentBucketWindow(queryBucketId);
+            if (currentBucketWindow != null) {
+                endBucketWindow = Math.min(endBucketWindow, (Long)currentBucketWindow);
+            }
+
+            DataQueryParam bucketDataQueryParam = DataQueryParam.builder().build();
+            BeanUtils.copyProperties(dataQueryParam, bucketDataQueryParam);
+            bucketDataQueryParam.setFrom(Math.max(dataQueryParam.getFrom() - itemList.size(), 0));
+            bucketDataQueryParam.setTo(dataQueryParam.getTo() - itemList.size());
+
+            List<BucketItem> queryBucketItemList = bucketDataMapper.query(queryBucketId, startBucketWindow, endBucketWindow, queryIndexCollection, bucketDataQueryParam);
             List<T> queryItemList = itemParser instanceof SimpleItemParser ? queryBucketItemList.stream().map(itemParser::convert2Item).collect(Collectors.toList()) : null;
             if (CollectionUtils.isNotEmpty(queryItemList)) {
                 itemList.addAll(queryItemList);
             }
         });
-        return itemList.subList(Math.min(itemList.size(), from), Math.min(itemList.size(), to));
+        return itemList;
     }
 
 }
