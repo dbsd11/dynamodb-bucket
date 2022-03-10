@@ -75,25 +75,26 @@ public class BucketTest {
 
         Map<String, String> expressionMap = new HashMap<>();
         Map<String, AttributeValue> expressionValueMap = new HashMap<>();
-        expressionMap.put("user_id", "user_id=:userId");
-        expressionMap.put("serial_number", "serial_number=:serialNumber");
-        expressionMap.put("tags", "contains(tags, :tag)");
-        expressionMap.put("share_user_ids", "size(share_user_ids) > :zero");
 
+        expressionMap.put("user_id", "user_id=:userId");
+        expressionMap.put("image_url", "image_url=:image_url");
+        expressionMap.put("share_user_ids", "size(share_user_ids) > :zero");
         expressionValueMap.put(":userId", new AttributeValue().withN("1"));
-        expressionValueMap.put(":serialNumber", new AttributeValue().withS("sn_01"));
-        expressionValueMap.put(":tag", new AttributeValue().withS("VEHICLE"));
+        expressionValueMap.put(":image_url", new AttributeValue().withS("http://img2.png"));
         expressionValueMap.put(":zero", new AttributeValue().withN("0"));
 
         DataQueryParam dataQueryParam = DataQueryParam.builder().expressionMap(expressionMap).expressionNameMap(Collections.emptyMap()).expressionValueMap(expressionValueMap).from(0).to(1000).build();
-        List<VideoLibrary> queryVideoLibraryList = bucket.query(dataQueryParam, null);
-        log.info("queryVideoLibraryDOList {}", queryVideoLibraryList);
-        queryVideoLibraryList.forEach(videoLibrary1 -> bucket.delete(videoLibrary1.getBizId(), videoLibrary1.getTraceId(), videoLibrary1.getUserId()));
+        List<VideoLibrary> queryVideoLibraryList1 = bucket.query(dataQueryParam, null);
+        log.info("queryVideoLibraryDOList {}", queryVideoLibraryList1);
 
+        expressionMap.put("serial_number", "serial_number=:serialNumber");
+        expressionMap.put("tags", "contains(tags, :tag)");
         expressionValueMap.put(":serialNumber", new AttributeValue().withS("sn_02"));
-        queryVideoLibraryList = bucket.query(dataQueryParam, null);
-        log.info("queryVideoLibraryDOList {}", queryVideoLibraryList);
-        queryVideoLibraryList.forEach(videoLibrary1 -> bucket.delete(videoLibrary1.getBizId(), videoLibrary1.getTraceId(), videoLibrary1.getUserId()));
+        expressionValueMap.put(":tag", new AttributeValue().withS("VEHICLE"));
+        List<VideoLibrary> queryVideoLibraryList2 = bucket.query(dataQueryParam, null);
+        log.info("queryVideoLibraryDOList {}", queryVideoLibraryList2);
+
+        queryVideoLibraryList2.forEach(videoLibrary1 -> bucket.delete(videoLibrary1.getBizId(), videoLibrary1.getTraceId(), videoLibrary1.getUserId()));
 
         queryVideoLibrary = bucket.queryOne(bizId, videoLibrary.getTraceId(), videoLibrary.getUserId());
         log.info("queryVideoLibraryDO {}", queryVideoLibrary);

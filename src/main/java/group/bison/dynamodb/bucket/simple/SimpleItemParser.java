@@ -12,6 +12,7 @@ import group.bison.dynamodb.bucket.simple.annotation.ItemTimestampField;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -192,6 +193,10 @@ public class SimpleItemParser<T> implements ItemParser<T> {
     }
 
     public IndexCollection getQueryIndexCollection(DataQueryParam dataQueryParam) {
+        if (MapUtils.isEmpty(dataQueryParam.getExpressionMap())) {
+            return null;
+        }
+
         IndexCollection queryIndexCollection = new IndexCollection();
 
         dataQueryParam.getExpressionMap().entrySet().forEach(expressionEntry -> {

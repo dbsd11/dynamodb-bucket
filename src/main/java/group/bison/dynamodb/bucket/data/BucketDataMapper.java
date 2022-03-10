@@ -298,40 +298,38 @@ public class BucketDataMapper {
         }
 
         // 根据索引行为不同走不同的逻辑
-        if (indexCollection == null) {
+        if (indexCollection == null || MapUtils.isEmpty(indexCollection.getIndexMap())) {
             // 直接遍历bucket
-            QueryRequest invertIndexQueryRequest = new QueryRequest();
-            invertIndexQueryRequest.setTableName(bucketTableName);
-            invertIndexQueryRequest.setConsistentRead(false);
-            invertIndexQueryRequest.setScanIndexForward(false);
+            QueryRequest bucketQueryRequest = new QueryRequest();
+            bucketQueryRequest.setTableName(bucketTableName);
+            bucketQueryRequest.setConsistentRead(false);
+            bucketQueryRequest.setScanIndexForward(false);
 
-            Map<String, String> invertIndexAttributeNameMap = new HashMap<>();
-            Map<String, AttributeValue> invertIndexAttributeValueMap = new HashMap<>();
+            Map<String, AttributeValue> bucketQueryAttributeValueMap = new HashMap<>();
 
-            invertIndexQueryRequest.setKeyConditionExpression(String.join("", KEY_BUCKET_ID, "=", ":bucketId", " AND ", KEY_START_BUCKET_WINDOW, " BETWEEN ", ":startBucketWindow", " AND ", ":endBucketWindow"));
-            invertIndexAttributeValueMap.put(":bucketId", new AttributeValue().withS(bucketId));
-            invertIndexAttributeValueMap.put(":startBucketWindow", startBucketWindow instanceof String ? new AttributeValue().withS((String) startBucketWindow) : new AttributeValue().withN(String.valueOf(startBucketWindow)));
-            invertIndexAttributeValueMap.put(":endBucketWindow", endBucketWindow instanceof String ? new AttributeValue().withS((String) endBucketWindow) : new AttributeValue().withN(String.valueOf(endBucketWindow)));
+            bucketQueryRequest.setKeyConditionExpression(String.join("", KEY_BUCKET_ID, "=", ":bucketId", " AND ", KEY_START_BUCKET_WINDOW, " BETWEEN ", ":startBucketWindow", " AND ", ":endBucketWindow"));
+            bucketQueryAttributeValueMap.put(":bucketId", new AttributeValue().withS(bucketId));
+            bucketQueryAttributeValueMap.put(":startBucketWindow", startBucketWindow instanceof String ? new AttributeValue().withS((String) startBucketWindow) : new AttributeValue().withN(String.valueOf(startBucketWindow)));
+            bucketQueryAttributeValueMap.put(":endBucketWindow", endBucketWindow instanceof String ? new AttributeValue().withS((String) endBucketWindow) : new AttributeValue().withN(String.valueOf(endBucketWindow)));
 
             StringBuilder invertIndexProjectExpression = new StringBuilder();
             invertIndexProjectExpression.append(KEY_BUCKET_ID).append(",").append(KEY_START_BUCKET_WINDOW);
 
-            invertIndexQueryRequest.setProjectionExpression(invertIndexProjectExpression.toString());
-            invertIndexQueryRequest.setExpressionAttributeNames(invertIndexAttributeNameMap);
-            invertIndexQueryRequest.setExpressionAttributeValues(invertIndexAttributeValueMap);
+            bucketQueryRequest.setProjectionExpression(invertIndexProjectExpression.toString());
+            bucketQueryRequest.setExpressionAttributeValues(bucketQueryAttributeValueMap);
 
-            QueryResult queryResult = dynamoDB.query(invertIndexQueryRequest);
-            List<Map<String, AttributeValue>> invertIndexMapList = queryResult.getItems();
+            QueryResult queryResult = dynamoDB.query(bucketQueryRequest);
+            List<Map<String, AttributeValue>> bucketMapList = queryResult.getItems();
 
-            Iterator<Map<String, AttributeValue>> invertIndexMapListIterator = invertIndexMapList.iterator();
-            if (eagerFetched && invertIndexMapListIterator.hasNext()) {
-                invertIndexMapListIterator.next();
+            Iterator<Map<String, AttributeValue>> bucketMapListIterator = bucketMapList.iterator();
+            if (eagerFetched && bucketItemList.size() != 0 && bucketMapListIterator.hasNext()) {
+                bucketMapListIterator.next();
             }
 
-            while (invertIndexMapListIterator.hasNext()) {
-                Map<String, AttributeValue> invertIndexMap = invertIndexMapListIterator.next();
+            while (bucketMapListIterator.hasNext()) {
+                Map<String, AttributeValue> bucketMap = bucketMapListIterator.next();
 
-                AttributeValue bucketWindowAttributeValue = invertIndexMap.get(KEY_START_BUCKET_WINDOW);
+                AttributeValue bucketWindowAttributeValue = bucketMap.get(KEY_START_BUCKET_WINDOW);
 
                 List<BucketItem> matchBucketItemList = bucketDataQueryFetcher.fetch(bucketId, bucketWindowAttributeValue, dataQueryParam);
 
@@ -385,7 +383,7 @@ public class BucketDataMapper {
             List<Map<String, AttributeValue>> invertIndexMapList = queryResult.getItems();
 
             Iterator<Map<String, AttributeValue>> invertIndexMapListIterator = invertIndexMapList.iterator();
-            if (eagerFetched && invertIndexMapListIterator.hasNext()) {
+            if (eagerFetched && bucketItemList.size() != 0 && invertIndexMapListIterator.hasNext()) {
                 invertIndexMapListIterator.next();
             }
 
