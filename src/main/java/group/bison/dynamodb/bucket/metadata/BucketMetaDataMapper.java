@@ -18,6 +18,7 @@ import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -35,6 +36,8 @@ import static group.bison.dynamodb.bucket.common.Constants.KEY_ITEM_COUNT;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_ITEM_MAP;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_START_BUCKET_WINDOW;
 import static group.bison.dynamodb.bucket.common.Constants.MAX_BUCKET_ITEM_COUNT;
+import static group.bison.dynamodb.bucket.common.Constants.NS_EMPTY_VALUE;
+import static group.bison.dynamodb.bucket.common.Constants.SS_EMPTY_STR;
 
 @Slf4j
 @NoArgsConstructor
@@ -182,8 +185,14 @@ public class BucketMetaDataMapper {
         bucketKeyAttributeValueMap.put(KEY_START_BUCKET_WINDOW, startBucketWindow instanceof String ? new AttributeValue().withS((String) startBucketWindow) : new AttributeValue().withN(String.valueOf(startBucketWindow)));
         updateItemRequest.setKey(bucketKeyAttributeValueMap);
 
-        String updateExpression = indexCollection.getIndexMap().keySet().stream().map(key -> String.join("", key, " = ", "if_not_exists(", key, ", :emptyMap)")).collect(Collectors.joining(","));
+        Map<String, String> expressionNameMap = new HashMap<>();
+        String updateExpression = indexCollection.getIndexMap().keySet().stream().map(key -> {
+            String keyName = String.join("", "#", key);
+            expressionNameMap.put(keyName, key);
+            return keyName;
+        }).map(key -> String.join("", key, " = ", "if_not_exists(", key, ", :emptyMap)")).collect(Collectors.joining(","));
         updateItemRequest.setUpdateExpression(String.join(" ", "SET", updateExpression));
+        updateItemRequest.setExpressionAttributeNames(expressionNameMap);
         updateItemRequest.withExpressionAttributeValues(Collections.singletonMap(":emptyMap", new AttributeValue().withM(Collections.emptyMap())));
         dynamoDB.updateItem(updateItemRequest);
 
@@ -194,14 +203,20 @@ public class BucketMetaDataMapper {
                 return;
             }
 
-            String indexKey = indexEntry.getKey();
+            String indexKey = String.join("", "#", indexEntry.getKey());
+
             AtomicInteger i = new AtomicInteger();
             indexEntry.getValue().getInvertedIndexValueMap().entrySet().forEach(invertedIndexValueEntry -> {
-                String indexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
+                if (isEmptyIndexValue(invertedIndexValueEntry.getKey())) {
+                    return;
+                }
+
+                String indexSubKey = String.join("", indexKey, String.valueOf(i.incrementAndGet()));
                 String invertedIndexValueKeyPath = String.join(".", indexKey, indexSubKey);
                 subUpdateExpressionBuilder.append(String.join("", invertedIndexValueKeyPath, " = ", "if_not_exists(", invertedIndexValueKeyPath, ", :emptyMap)"));
                 subUpdateExpressionBuilder.append(",");
                 subAttributeNameMap.put(indexSubKey, invertedIndexValueEntry.getKey());
+                subAttributeNameMap.put(indexKey, indexEntry.getKey());
             });
         });
 
@@ -211,5 +226,9 @@ public class BucketMetaDataMapper {
         updateItemRequest.withExpressionAttributeNames(subAttributeNameMap);
         updateItemRequest.withExpressionAttributeValues(Collections.singletonMap(":emptyMap", new AttributeValue().withM(Collections.emptyMap())));
         dynamoDB.updateItem(updateItemRequest);
+    }
+
+    boolean isEmptyIndexValue(String str) {
+        return SS_EMPTY_STR.equals(str) || NS_EMPTY_VALUE.equals(str);
     }
 }

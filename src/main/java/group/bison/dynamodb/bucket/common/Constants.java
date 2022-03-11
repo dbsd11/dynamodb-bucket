@@ -14,6 +14,10 @@ public interface Constants {
 
     String KEY_TTL_TIMESTAMP = "ttl_timestamp";
 
+    String SS_EMPTY_STR = "";
+
+    String NS_EMPTY_VALUE = "-0";
+
     Integer MAX_BUCKET_ITEM_COUNT = 100;
 
     Integer SCAN_MAX_COUNT = 10000;

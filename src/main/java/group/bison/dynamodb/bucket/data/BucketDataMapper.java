@@ -32,7 +32,9 @@ import static group.bison.dynamodb.bucket.common.Constants.KEY_ITEM_MAP;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_START_BUCKET_WINDOW;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_TTL_TIMESTAMP;
 import static group.bison.dynamodb.bucket.common.Constants.MAX_BUCKET_ITEM_COUNT;
+import static group.bison.dynamodb.bucket.common.Constants.NS_EMPTY_VALUE;
 import static group.bison.dynamodb.bucket.common.Constants.SCAN_MAX_COUNT;
+import static group.bison.dynamodb.bucket.common.Constants.SS_EMPTY_STR;
 
 @NoArgsConstructor
 public class BucketDataMapper {
@@ -89,14 +91,20 @@ public class BucketDataMapper {
                     return;
                 }
 
-                String indexKey = indexEntry.getKey();
+                String indexKey = String.join("", "#", indexEntry.getKey());
+
                 AtomicInteger i = new AtomicInteger();
                 indexEntry.getValue().getInvertedIndexValueMap().entrySet().forEach(invertedIndexValueEntry -> {
-                    String indexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
+                    if (isEmptyIndexValue(invertedIndexValueEntry.getKey())) {
+                        return;
+                    }
+
+                    String indexSubKey = String.join("", indexKey, String.valueOf(i.incrementAndGet()));
                     String invertedIndexValueKeyPath = String.join(".", indexKey, indexSubKey, "#itemId");
                     updateExpressionBuilder.append(String.join("", invertedIndexValueKeyPath, " = ", ":one"));
                     updateExpressionBuilder.append(",");
                     attributeNameMap.put(indexSubKey, invertedIndexValueEntry.getKey());
+                    attributeNameMap.put(indexKey, indexEntry.getKey());
                 });
             });
         }
@@ -150,52 +158,65 @@ public class BucketDataMapper {
                     return;
                 }
 
-                String indexKey = indexEntry.getKey();
+                String indexKey = String.join("", "#", indexEntry.getKey());
+
                 AtomicInteger i = new AtomicInteger();
 
                 AttributeValue currentAttributeValue = currentBucketItem.getItemAttributeValueMap().get(indexEntry.getKey());
                 if (CollectionUtils.isNotEmpty(currentAttributeValue.getSS())) {
                     currentAttributeValue.getSS().forEach(currentValue -> {
+                        if (isEmptyIndexValue(currentValue)) {
+                            return;
+                        }
+
                         if (indexEntry.getValue().getInvertedIndexValueMap().containsKey(currentValue)) {
                             return;
                         }
 
-                        String currentIndexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
-                        updateExpressionBuilder.append(String.join("", "#", indexKey, ".", currentIndexSubKey, ".", "#itemId", " = ", ":zero"));
+                        String currentIndexSubKey = String.join("", indexKey, String.valueOf(i.incrementAndGet()));
+                        updateExpressionBuilder.append(String.join("", indexKey, ".", currentIndexSubKey, ".", "#itemId", " = ", ":zero"));
                         updateExpressionBuilder.append(",");
                         attributeNameMap.put(currentIndexSubKey, currentValue);
+                        attributeNameMap.put(indexKey, indexEntry.getKey());
                         attributeValueMap.put(":zero", new AttributeValue().withN("0"));
                     });
                     indexEntry.getValue().getInvertedIndexValueMap().keySet().forEach(value -> {
                         if (!currentAttributeValue.getSS().contains(value)) {
                             // set new index value 1
-                            String newIndexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
+                            String newIndexSubKey = String.join("", indexKey, String.valueOf(i.incrementAndGet()));
                             updateExpressionBuilder.append(String.join("", indexKey, ".", newIndexSubKey, ".", "#itemId", " = ", ":one"));
                             updateExpressionBuilder.append(",");
                             attributeNameMap.put(newIndexSubKey, value);
+                            attributeNameMap.put(indexKey, indexEntry.getKey());
                             attributeValueMap.put(":one", new AttributeValue().withN("1"));
                         }
                     });
                 } else if (CollectionUtils.isNotEmpty(currentAttributeValue.getNS())) {
                     currentAttributeValue.getNS().forEach(currentValue -> {
+                        if (isEmptyIndexValue(currentValue)) {
+                            return;
+                        }
+
                         if (indexEntry.getValue().getInvertedIndexValueMap().containsKey(currentValue)) {
                             return;
                         }
 
-                        String currentIndexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
-                        updateExpressionBuilder.append(String.join("", "#", indexKey, ".", currentIndexSubKey, ".", "#itemId", " = ", ":zero"));
+                        String currentIndexSubKey = String.join("", indexKey, String.valueOf(i.incrementAndGet()));
+                        updateExpressionBuilder.append(String.join("", indexKey, ".", currentIndexSubKey, ".", "#itemId", " = ", ":zero"));
                         updateExpressionBuilder.append(",");
                         attributeNameMap.put(currentIndexSubKey, currentValue);
+                        attributeNameMap.put(indexKey, indexEntry.getKey());
                         attributeValueMap.put(":zero", new AttributeValue().withN("0"));
                     });
 
                     indexEntry.getValue().getInvertedIndexValueMap().keySet().forEach(value -> {
                         if (!currentAttributeValue.getNS().contains(value)) {
                             // set new index value 1
-                            String newIndexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
+                            String newIndexSubKey = String.join("", indexKey, String.valueOf(i.incrementAndGet()));
                             updateExpressionBuilder.append(String.join("", indexKey, ".", newIndexSubKey, ".", "#itemId", " = ", ":one"));
                             updateExpressionBuilder.append(",");
                             attributeNameMap.put(newIndexSubKey, value);
+                            attributeNameMap.put(indexKey, indexEntry.getKey());
                             attributeValueMap.put(":one", new AttributeValue().withN("1"));
                         }
                     });
@@ -203,22 +224,27 @@ public class BucketDataMapper {
                     indexEntry.getValue().getInvertedIndexValueMap().entrySet().forEach(invertedIndexValueEntry -> {
                         // set old index value 0
                         String currentValue = StringUtils.defaultString(currentAttributeValue.getS(), currentAttributeValue.getN());
+                        if (isEmptyIndexValue(currentValue)) {
+                            return;
+                        }
                         if (StringUtils.equals(invertedIndexValueEntry.getKey(), currentValue)) {
                             return;
                         }
 
-                        String currentIndexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
-                        updateExpressionBuilder.append(String.join("", "#", indexKey, ".", currentIndexSubKey, ".", "#itemId", " = ", ":zero"));
+                        String currentIndexSubKey = String.join("", indexKey, String.valueOf(i.incrementAndGet()));
+                        updateExpressionBuilder.append(String.join("", indexKey, ".", currentIndexSubKey, ".", "#itemId", " = ", ":zero"));
                         updateExpressionBuilder.append(",");
                         attributeNameMap.put(currentIndexSubKey, currentValue);
                         attributeValueMap.put(":zero", new AttributeValue().withN("0"));
 
                         // set new index value 1
-                        String newIndexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
+                        String newIndexSubKey = String.join("", indexKey, String.valueOf(i.incrementAndGet()));
                         updateExpressionBuilder.append(String.join("", indexKey, ".", newIndexSubKey, ".", "#itemId", " = ", ":one"));
                         updateExpressionBuilder.append(",");
                         attributeNameMap.put(newIndexSubKey, invertedIndexValueEntry.getKey());
                         attributeValueMap.put(":one", new AttributeValue().withN("1"));
+
+                        attributeNameMap.put(indexKey, indexEntry.getKey());
                     });
                 }
             });
@@ -363,13 +389,19 @@ public class BucketDataMapper {
                     return;
                 }
 
-                String indexKey = indexEntry.getKey();
+                String indexKey = String.join("", "#", indexEntry.getKey());
+
                 AtomicInteger i = new AtomicInteger();
                 indexEntry.getValue().getInvertedIndexValueMap().entrySet().forEach(invertedIndexValueEntry -> {
-                    String indexSubKey = String.join("", "#", indexKey, String.valueOf(i.incrementAndGet()));
+                    if (isEmptyIndexValue(invertedIndexValueEntry.getKey())) {
+                        return;
+                    }
+
+                    String indexSubKey = String.join("", indexKey, String.valueOf(i.incrementAndGet()));
                     invertIndexProjectExpression.append(String.join("", indexKey, ".", indexSubKey));
                     invertIndexProjectExpression.append(",");
                     invertIndexAttributeNameMap.put(indexSubKey, invertedIndexValueEntry.getKey());
+                    invertIndexAttributeNameMap.put(indexKey, indexEntry.getKey());
                 });
             });
 
@@ -447,5 +479,9 @@ public class BucketDataMapper {
 
         bucketItemList = new ArrayList<>(bucketItemList);
         return bucketItemList.subList(Math.min(bucketItemList.size(), dataQueryParam.getFrom()), Math.min(bucketItemList.size(), dataQueryParam.getTo()));
+    }
+
+    boolean isEmptyIndexValue(String str) {
+        return SS_EMPTY_STR.equals(str) || NS_EMPTY_VALUE.equals(str);
     }
 }
