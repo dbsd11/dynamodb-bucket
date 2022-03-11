@@ -15,6 +15,8 @@ import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBRangeKey;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTypeConverted;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTyped;
+import com.amazonaws.services.dynamodbv2.model.AttributeValue;
+import com.amazonaws.services.dynamodbv2.model.DeleteItemRequest;
 import group.bison.dynamodb.bucket.api.BucketApi;
 import group.bison.dynamodb.bucket.simple.SimpleBucket;
 import group.bison.dynamodb.bucket.simple.annotation.BucketIdField;
@@ -26,10 +28,12 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ArrayUtils;
 import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -39,6 +43,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import static group.bison.dynamodb.bucket.common.Constants.KEY_BUCKET_ID;
+import static group.bison.dynamodb.bucket.common.Constants.KEY_START_BUCKET_WINDOW;
 
 @Slf4j
 public class BucketBenchmarkTest {
@@ -52,23 +59,34 @@ public class BucketBenchmarkTest {
                 .withCredentials(new AWSStaticCredentialsProvider(awsCredentials))
                 .build();
 
-        AmazonDynamoDB daxDynamoDB = AmazonDaxClientBuilder.standard()
-                .withRegion(System.getenv("awsRegion"))
-                .withCredentials(new AWSStaticCredentialsProvider(awsCredentials))
-                .withEndpointConfiguration(System.getenv("daxEndpoint"))
-                .build();
+//        AmazonDynamoDB daxDynamoDB = AmazonDaxClientBuilder.standard()
+//                .withRegion(System.getenv("awsRegion"))
+//                .withCredentials(new AWSStaticCredentialsProvider(awsCredentials))
+//                .withEndpointConfiguration(System.getenv("daxEndpoint"))
+//                .build();
+        AmazonDynamoDB daxDynamoDB = null;
+
+//        DeleteItemRequest deleteItemRequest = new DeleteItemRequest();
+//        deleteItemRequest.setTableName("bucket-video_library");
+//        deleteItemRequest.setKey(new HashMap<String, AttributeValue>() {{
+//            put(KEY_BUCKET_ID, new AttributeValue().withS("0"));
+//            put(KEY_START_BUCKET_WINDOW, new AttributeValue().withN(String.valueOf(System.currentTimeMillis() / 60 / 60 / 1000)));
+//        }});
+//        dynamoDB.deleteItem(deleteItemRequest);
 
         BucketApi<VideoLibraryDO> videoLibraryDOBucketApi = new SimpleBucket<>("video_library", VideoLibraryDO.class, dynamoDB, daxDynamoDB);
 
         ExecutorService executor = Executors.newFixedThreadPool(100);
 
+        Integer userCount = ArrayUtils.getLength(args) > 0 ? Integer.valueOf(args[0]) : 1;
+
         ConcurrentLinkedQueue userIdQueue = new ConcurrentLinkedQueue();
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < userCount; i++) {
             userIdQueue.add(i);
         }
 
         CountDownLatch countDownLatch = new CountDownLatch(100000);
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < userCount; i++) {
             CompletableFuture.runAsync(() -> {
                 while (true) {
                     Integer userId = null;

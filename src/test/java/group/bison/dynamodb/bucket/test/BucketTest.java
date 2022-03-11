@@ -15,6 +15,7 @@ import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTable;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTypeConverted;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBTyped;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
+import com.amazonaws.services.dynamodbv2.model.DeleteItemRequest;
 import group.bison.dynamodb.bucket.api.BucketApi;
 import group.bison.dynamodb.bucket.common.domain.DataQueryParam;
 import group.bison.dynamodb.bucket.simple.SimpleBucket;
@@ -38,6 +39,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import static group.bison.dynamodb.bucket.common.Constants.KEY_BUCKET_ID;
+import static group.bison.dynamodb.bucket.common.Constants.KEY_START_BUCKET_WINDOW;
+
 @Slf4j
 public class BucketTest {
 
@@ -49,6 +53,14 @@ public class BucketTest {
                 .withRegion(System.getenv("awsRegion"))
                 .withCredentials(new AWSStaticCredentialsProvider(awsCredentials))
                 .build();
+
+        DeleteItemRequest deleteItemRequest = new DeleteItemRequest();
+        deleteItemRequest.setTableName("bucket-video_library");
+        deleteItemRequest.setKey(new HashMap<String, AttributeValue>() {{
+            put(KEY_BUCKET_ID, new AttributeValue().withS("1"));
+            put(KEY_START_BUCKET_WINDOW, new AttributeValue().withN(String.valueOf(System.currentTimeMillis() / 60 / 60 / 1000)));
+        }});
+        dynamoDB.deleteItem(deleteItemRequest);
 
         BucketApi<VideoLibrary> bucket = new SimpleBucket<VideoLibrary>("video_library", VideoLibrary.class, dynamoDB, null);
 
@@ -79,7 +91,7 @@ public class BucketTest {
         expressionMap.put("user_id", "user_id=:userId");
         expressionMap.put("image_url", "image_url=:image_url");
         expressionMap.put("share_user_ids", "size(share_user_ids) > :zero");
-        expressionValueMap.put(":userId", new AttributeValue().withN("1"));
+        expressionValueMap.put(":userId", new AttributeValue().withN(String.valueOf(videoLibrary.getUserId())));
         expressionValueMap.put(":image_url", new AttributeValue().withS("http://img2.png"));
         expressionValueMap.put(":zero", new AttributeValue().withN("0"));
 

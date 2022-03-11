@@ -18,7 +18,6 @@ import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -30,6 +29,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static group.bison.dynamodb.bucket.common.Constants.KEY_BUCKET_ID;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_ITEM_COUNT;
@@ -133,7 +133,7 @@ public class BucketMetaDataMapper {
         bucketAttributeValueMap.put(KEY_BUCKET_ID, new AttributeValue().withS(bucketId));
         bucketAttributeValueMap.put(KEY_START_BUCKET_WINDOW, startBucketWindow instanceof String ? new AttributeValue().withS((String) startBucketWindow) : new AttributeValue().withN(String.valueOf(startBucketWindow)));
         bucketAttributeValueMap.put(KEY_ITEM_COUNT, new AttributeValue().withN("0"));
-        bucketAttributeValueMap.put(KEY_ITEM_MAP, new AttributeValue().withM(Collections.emptyMap()));
+        IntStream.range(0, MAX_BUCKET_ITEM_COUNT).forEach(i -> bucketAttributeValueMap.put(String.join("", KEY_ITEM_MAP, String.valueOf(i)), new AttributeValue().withM(Collections.emptyMap())));
         putItemRequest.setItem(bucketAttributeValueMap);
 
         currentBucketWindowMap.put(bucketId, startBucketWindow);

@@ -2,9 +2,13 @@ package group.bison.dynamodb.bucket.data;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
+import com.amazonaws.services.dynamodbv2.model.AttributeValueUpdate;
 import com.amazonaws.services.dynamodbv2.model.QueryRequest;
 import com.amazonaws.services.dynamodbv2.model.QueryResult;
+import com.amazonaws.services.dynamodbv2.model.ReturnConsumedCapacity;
+import com.amazonaws.services.dynamodbv2.model.ReturnItemCollectionMetrics;
 import com.amazonaws.services.dynamodbv2.model.UpdateItemRequest;
+import com.amazonaws.services.dynamodbv2.model.UpdateItemResult;
 import group.bison.dynamodb.bucket.common.Constants;
 import group.bison.dynamodb.bucket.common.domain.DataQueryParam;
 import group.bison.dynamodb.bucket.metadata.BucketItem;
@@ -65,17 +69,27 @@ public class BucketDataMapper {
 
         UpdateItemRequest updateItemRequest = new UpdateItemRequest();
         updateItemRequest.setTableName(bucketTableName);
+        updateItemRequest.setReturnItemCollectionMetrics(ReturnItemCollectionMetrics.SIZE);
 
         Map<String, AttributeValue> bucketKeyAttributeValueMap = new HashMap<>();
         bucketKeyAttributeValueMap.put(KEY_BUCKET_ID, new AttributeValue().withS(bucketItem.getBucketId()));
         bucketKeyAttributeValueMap.put(KEY_START_BUCKET_WINDOW, bucketItem.getBucketWindow() instanceof String ? (new AttributeValue().withS(bucketItem.getBucketWindow())) : new AttributeValue().withN(String.valueOf(bucketItem.<Object>getBucketWindow())));
         updateItemRequest.setKey(bucketKeyAttributeValueMap);
 
+        Map<String, AttributeValueUpdate> updateAttributeValueMap = new HashMap<>();
+        updateAttributeValueMap.put("ttl_timestamp", new AttributeValueUpdate().withValue(new AttributeValue().withN("1")));
+        updateItemRequest.setAttributeUpdates(updateAttributeValueMap);
+
+        updateItemRequest.setReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
+        UpdateItemResult updateItemResult2 = dynamoDB.updateItem(updateItemRequest);
+        System.out.println("updateItemResult2:" + updateItemResult2);
+
         Map<String, String> attributeNameMap = new HashMap<>();
         Map<String, AttributeValue> attributeValueMap = new HashMap<>();
         StringBuilder updateExpressionBuilder = new StringBuilder("SET ");
 
-        updateExpressionBuilder.append(String.join("", Constants.KEY_ITEM_MAP, ".", "#itemId", " = ", ":item"));
+        String itemMapColumn = getItemMapColumn(bucketItem.getItemId());
+        updateExpressionBuilder.append(String.join("", itemMapColumn, ".", "#itemId", " = ", ":item"));
         updateExpressionBuilder.append(",");
         attributeNameMap.put("#itemId", bucketItem.getItemId());
         attributeValueMap.put(":item", new AttributeValue().withM(bucketItem.getItemAttributeValueMap()));
@@ -121,7 +135,10 @@ public class BucketDataMapper {
         updateItemRequest.setExpressionAttributeNames(attributeNameMap);
         updateItemRequest.setExpressionAttributeValues(attributeValueMap);
 
-        dynamoDB.updateItem(updateItemRequest);
+        updateItemRequest.setAttributeUpdates(null);
+        updateItemRequest.setReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
+        UpdateItemResult updateItemResult = dynamoDB.updateItem(updateItemRequest);
+        System.out.println("updateItemResult:" + updateItemResult);
     }
 
     public void update(BucketItem bucketItem) {
@@ -137,10 +154,12 @@ public class BucketDataMapper {
         Map<String, AttributeValue> attributeValueMap = new HashMap<>();
         StringBuilder updateExpressionBuilder = new StringBuilder("SET ");
 
+        String itemMapColumn = getItemMapColumn(bucketItem.getItemId());
+
         bucketItem.getItemAttributeValueMap().entrySet().forEach(updateItemAttributeEntry -> {
             String updateItemAttributeKey = String.join("", "#", updateItemAttributeEntry.getKey());
             String updateItemAttributeValueKey = String.join("", ":", updateItemAttributeEntry.getKey());
-            updateExpressionBuilder.append(String.join("", Constants.KEY_ITEM_MAP, ".", "#itemId", ".", updateItemAttributeKey, " = ", updateItemAttributeValueKey));
+            updateExpressionBuilder.append(String.join("", itemMapColumn, ".", "#itemId", ".", updateItemAttributeKey, " = ", updateItemAttributeValueKey));
             updateExpressionBuilder.append(",");
             attributeNameMap.put(updateItemAttributeKey, updateItemAttributeEntry.getKey());
             attributeValueMap.put(updateItemAttributeValueKey, updateItemAttributeEntry.getValue());
@@ -256,9 +275,11 @@ public class BucketDataMapper {
         updateItemRequest.setExpressionAttributeNames(attributeNameMap);
         updateItemRequest.setExpressionAttributeValues(attributeValueMap);
 
-        updateItemRequest.setConditionExpression(String.join("", "attribute_exists(", KEY_ITEM_MAP, ".", "#itemId", ".", KEY_BIZ_ID, ")"));
+        updateItemRequest.setConditionExpression(String.join("", "attribute_exists(", itemMapColumn, ".", "#itemId", ".", KEY_BIZ_ID, ")"));
 
-        dynamoDB.updateItem(updateItemRequest);
+        updateItemRequest.setReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
+        UpdateItemResult updateItemResult = dynamoDB.updateItem(updateItemRequest);
+        System.out.println("updateItem " + updateItemResult.getConsumedCapacity());
     }
 
     public void delete(BucketItem bucketItem) {
@@ -274,7 +295,9 @@ public class BucketDataMapper {
         Map<String, AttributeValue> attributeValueMap = new HashMap<>();
         StringBuilder updateExpressionBuilder = new StringBuilder("SET ");
 
-        updateExpressionBuilder.append(String.join("", Constants.KEY_ITEM_MAP, ".", "#itemId", " = ", ":emptyMap"));
+        String itemMapColumn = getItemMapColumn(bucketItem.getItemId());
+
+        updateExpressionBuilder.append(String.join("", itemMapColumn, ".", "#itemId", " = ", ":emptyMap"));
         updateExpressionBuilder.append(",");
         attributeNameMap.put("#itemId", bucketItem.getItemId());
         attributeValueMap.put(":emptyMap", new AttributeValue().withM(Collections.emptyMap()));
@@ -479,6 +502,12 @@ public class BucketDataMapper {
 
         bucketItemList = new ArrayList<>(bucketItemList);
         return bucketItemList.subList(Math.min(bucketItemList.size(), dataQueryParam.getFrom()), Math.min(bucketItemList.size(), dataQueryParam.getTo()));
+    }
+
+    String getItemMapColumn(String itemId) {
+        int h = 0;
+        int hash = (itemId == null) ? 0 : (h = itemId.hashCode()) ^ (h >>> 16);
+        return String.join("", KEY_ITEM_MAP, String.valueOf((MAX_BUCKET_ITEM_COUNT - 1) & hash));
     }
 
     boolean isEmptyIndexValue(String str) {

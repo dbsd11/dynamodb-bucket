@@ -18,7 +18,7 @@ public interface Constants {
 
     String NS_EMPTY_VALUE = "-0";
 
-    Integer MAX_BUCKET_ITEM_COUNT = 100;
+    Integer MAX_BUCKET_ITEM_COUNT = 64;
 
     Integer SCAN_MAX_COUNT = 10000;
 }

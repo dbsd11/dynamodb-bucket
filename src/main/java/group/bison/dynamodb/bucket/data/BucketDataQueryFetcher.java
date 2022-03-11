@@ -18,11 +18,13 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static group.bison.dynamodb.bucket.common.Constants.KEY_BIZ_ID;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_BUCKET_ID;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_ITEM_MAP;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_START_BUCKET_WINDOW;
+import static group.bison.dynamodb.bucket.common.Constants.MAX_BUCKET_ITEM_COUNT;
 
 @NoArgsConstructor
 @AllArgsConstructor
@@ -44,7 +46,9 @@ public class BucketDataQueryFetcher {
         bucketKeyAttributeValueMap.put(KEY_START_BUCKET_WINDOW, startBucketWindow);
         getItemRequest.setKey(bucketKeyAttributeValueMap);
 
-        getItemRequest.setProjectionExpression(KEY_ITEM_MAP);
+        List<String> itemMapColumnList = IntStream.range(0, MAX_BUCKET_ITEM_COUNT).mapToObj(i -> String.join("", KEY_ITEM_MAP, String.valueOf(i))).collect(Collectors.toList());
+        String projectExpression = String.join(",", itemMapColumnList);
+        getItemRequest.setProjectionExpression(projectExpression);
 
         GetItemResult getItemResult = dynamoDB.getItem(getItemRequest);
         Map<String, BucketItem> bucketItemMap = parseGetItemResult(getItemResult);
@@ -69,8 +73,9 @@ public class BucketDataQueryFetcher {
         AtomicInteger i = new AtomicInteger();
 
         queryItemIds.forEach(bucketItemId -> {
+            String itemMapColumn = getItemMapColumn(bucketItemId);
             String itemIdKey = String.join("", "#itemId", String.valueOf(i.incrementAndGet()));
-            projectExpressionBuilder.append(String.join("", KEY_ITEM_MAP, ".", itemIdKey));
+            projectExpressionBuilder.append(String.join("", itemMapColumn, ".", itemIdKey));
             projectExpressionBuilder.append(",");
             itemQueryAttributeNameMap.put(itemIdKey, bucketItemId);
             return;
@@ -89,38 +94,43 @@ public class BucketDataQueryFetcher {
     }
 
     Map<String, BucketItem> parseGetItemResult(GetItemResult getItemResult) {
-        if (getItemResult == null || MapUtils.isEmpty(getItemResult.getItem()) || !getItemResult.getItem().containsKey(KEY_ITEM_MAP)) {
+        if (getItemResult == null || MapUtils.isEmpty(getItemResult.getItem())) {
             return Collections.emptyMap();
         }
 
-        Map<String, BucketItem> bucketItemMap = getItemResult.getItem().get(KEY_ITEM_MAP).getM().entrySet().stream().map(itemAttributeValueEntry -> {
-            String itemId = itemAttributeValueEntry.getKey();
-            Map<String, AttributeValue> attributeValueMap = itemAttributeValueEntry.getValue().getM();
-            if (MapUtils.isEmpty(attributeValueMap)) {
-                return null;
-            }
+        Map<String, BucketItem> bucketItemMap = getItemResult.getItem().entrySet().stream()
+                .filter(bucketColumnEntry -> bucketColumnEntry.getKey().contains(KEY_ITEM_MAP))
+                .flatMap(bucketColumnEntry -> {
+                    return bucketColumnEntry.getValue().getM().entrySet().stream().map(itemAttributeValueEntry -> {
+                        String itemId = itemAttributeValueEntry.getKey();
+                        Map<String, AttributeValue> attributeValueMap = itemAttributeValueEntry.getValue().getM();
+                        if (MapUtils.isEmpty(attributeValueMap)) {
+                            return null;
+                        }
 
+                        if (MapUtils.isEmpty(itemAttributeValueEntry.getValue().getM())) {
+                            return null;
+                        }
 
-            if (MapUtils.isEmpty(itemAttributeValueEntry.getValue().getM())) {
-                return null;
-            }
+                        BucketItem bucketItem = new BucketItem() {
+                            @Override
+                            public String getBucketId() {
+                                return null;
+                            }
 
-            BucketItem bucketItem = new BucketItem() {
-                @Override
-                public String getBucketId() {
-                    return null;
-                }
-
-                @Override
-                public <W> W getBucketWindow() {
-                    return null;
-                }
-            };
-            bucketItem.setItemId(itemId);
-            bucketItem.setBizId(attributeValueMap.get(KEY_BIZ_ID).getS());
-            bucketItem.setItemAttributeValueMap(attributeValueMap);
-            return bucketItem;
-        }).filter(obj -> obj != null).collect(Collectors.toMap(BucketItem::getItemId, Function.identity()));
+                            @Override
+                            public <W> W getBucketWindow() {
+                                return null;
+                            }
+                        };
+                        bucketItem.setItemId(itemId);
+                        bucketItem.setBizId(attributeValueMap.get(KEY_BIZ_ID).getS());
+                        bucketItem.setItemAttributeValueMap(attributeValueMap);
+                        return bucketItem;
+                    });
+                })
+                .filter(obj -> obj != null)
+                .collect(Collectors.toMap(BucketItem::getItemId, Function.identity()));
         return bucketItemMap;
     }
 
@@ -135,5 +145,11 @@ public class BucketDataQueryFetcher {
                     .allMatch(attributeValueEntry -> expressionFilter.isMatch(dataQueryParam.getExpressionMap().get(attributeValueEntry.getKey()), dataQueryParam.getExpressionNameMap(), dataQueryParam.getExpressionValueMap(), attributeValueEntry.getValue()));
         }).collect(Collectors.toList());
         return matchBucketItemList;
+    }
+
+    String getItemMapColumn(String itemId) {
+        int h = 0;
+        int hash = (itemId == null) ? 0 : (h = itemId.hashCode()) ^ (h >>> 16);
+        return String.join("", KEY_ITEM_MAP, String.valueOf((MAX_BUCKET_ITEM_COUNT - 1) & hash));
     }
 }

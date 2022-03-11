@@ -1,10 +1,8 @@
 package group.bison.dynamodb.bucket.api;
 
-import com.amazonaws.services.dynamodbv2.model.AttributeValue;
 import group.bison.dynamodb.bucket.common.domain.DataQueryParam;
 
 import java.util.List;
-import java.util.Map;
 
 public interface BucketApi<T> {
 
