@@ -76,14 +76,6 @@ public class BucketDataMapper {
         bucketKeyAttributeValueMap.put(KEY_START_BUCKET_WINDOW, bucketItem.getBucketWindow() instanceof String ? (new AttributeValue().withS(bucketItem.getBucketWindow())) : new AttributeValue().withN(String.valueOf(bucketItem.<Object>getBucketWindow())));
         updateItemRequest.setKey(bucketKeyAttributeValueMap);
 
-        Map<String, AttributeValueUpdate> updateAttributeValueMap = new HashMap<>();
-        updateAttributeValueMap.put("ttl_timestamp", new AttributeValueUpdate().withValue(new AttributeValue().withN("1")));
-        updateItemRequest.setAttributeUpdates(updateAttributeValueMap);
-
-        updateItemRequest.setReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
-        UpdateItemResult updateItemResult2 = dynamoDB.updateItem(updateItemRequest);
-        System.out.println("updateItemResult2:" + updateItemResult2);
-
         Map<String, String> attributeNameMap = new HashMap<>();
         Map<String, AttributeValue> attributeValueMap = new HashMap<>();
         StringBuilder updateExpressionBuilder = new StringBuilder("SET ");
@@ -135,10 +127,7 @@ public class BucketDataMapper {
         updateItemRequest.setExpressionAttributeNames(attributeNameMap);
         updateItemRequest.setExpressionAttributeValues(attributeValueMap);
 
-        updateItemRequest.setAttributeUpdates(null);
-        updateItemRequest.setReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
         UpdateItemResult updateItemResult = dynamoDB.updateItem(updateItemRequest);
-        System.out.println("updateItemResult:" + updateItemResult);
     }
 
     public void update(BucketItem bucketItem) {
