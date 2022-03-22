@@ -98,7 +98,7 @@ public class BucketMetaDataMapper {
         }
 
         try {
-            amazonS3Optional.ifPresent(amazonS3 -> amazonS3.createBucket(bucketTableName));
+            amazonS3Optional.ifPresent(amazonS3 -> amazonS3.createBucket("addx-test"));
         } catch (Exception e) {
             log.error("failed create s3 bucket", e);
         }
@@ -160,8 +160,8 @@ public class BucketMetaDataMapper {
         currentBucketWindowMap.put(bucketId, startBucketWindow);
 
         amazonS3Optional.ifPresent(amazonS3 -> {
-            String bucketS3StorageKey = String.join("/", bucketId, String.valueOf(startBucketWindow), String.join("", String.valueOf(System.currentTimeMillis()), ".json"));
-            amazonS3.putObject(bucketTableName, bucketS3StorageKey, EmptyInputStream.INSTANCE, new ObjectMetadata());
+            String bucketS3StorageKey = String.join("/", bucketTableName, String.valueOf(bucketId), startBucketWindow.toString(), String.join("", String.valueOf(System.currentTimeMillis()), ".json"));
+            amazonS3.putObject("addx-test", bucketS3StorageKey, EmptyInputStream.INSTANCE, new ObjectMetadata());
             bucketAttributeValueMap.put(KEY_BUCKET_S3_STORAGE_URL, new AttributeValue().withS(bucketS3StorageKey));
         });
 

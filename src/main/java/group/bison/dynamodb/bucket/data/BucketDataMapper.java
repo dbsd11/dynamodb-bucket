@@ -143,9 +143,9 @@ public class BucketDataMapper {
         amazonS3Optional.ifPresent(amazonS3 -> {
             try {
                 bucketItem.getItemAttributeValueMap().put("DATA_EVENT", new AttributeValue().withS("INSERT"));
-                String bucketS3StorageKey = String.join("/", bucketItem.getBucketId(), String.valueOf(bucketItem.getBucketWindow()), String.join("", String.valueOf(System.currentTimeMillis()), ".json"));
+                String bucketS3StorageKey = String.join("/", bucketTableName, String.valueOf(bucketItem.getBucketId()), bucketItem.getBucketWindow().toString(), String.join("", String.valueOf(System.currentTimeMillis()), ".json"));
                 String bucketItemJson = new ObjectMapper().writeValueAsString(bucketItem.getItemAttributeValueMap());
-                amazonS3.putObject(bucketTableName, bucketS3StorageKey, new ByteArrayInputStream(bucketItemJson.getBytes()), new ObjectMetadata());
+                amazonS3.putObject("addx-test", bucketS3StorageKey, new ByteArrayInputStream(bucketItemJson.getBytes()), new ObjectMetadata());
             } catch (Exception e) {
                 log.warn("amazonS3 putObject failed", e);
             }
@@ -294,9 +294,9 @@ public class BucketDataMapper {
             try {
                 bucketItem.getItemAttributeValueMap().put("DATA_EVENT", new AttributeValue().withS("UPDATE"));
 
-                String bucketS3StorageKey = String.join("/", bucketItem.getBucketId(), String.valueOf(bucketItem.getBucketWindow()), String.join("", String.valueOf(System.currentTimeMillis()), ".json"));
+                String bucketS3StorageKey = String.join("/", bucketTableName, String.valueOf(bucketItem.getBucketId()), bucketItem.getBucketWindow().toString(), String.join("", String.valueOf(System.currentTimeMillis()), ".json"));
                 String bucketItemJson = new ObjectMapper().writeValueAsString(bucketItem.getItemAttributeValueMap());
-                amazonS3.putObject(bucketTableName, bucketS3StorageKey, new ByteArrayInputStream(bucketItemJson.getBytes()), new ObjectMetadata());
+                amazonS3.putObject("addx-test", bucketS3StorageKey, new ByteArrayInputStream(bucketItemJson.getBytes()), new ObjectMetadata());
             } catch (Exception e) {
                 log.warn("amazonS3 putObject failed", e);
             }
@@ -337,10 +337,12 @@ public class BucketDataMapper {
 
         amazonS3Optional.ifPresent(amazonS3 -> {
             try {
-                bucketItem.getItemAttributeValueMap().put("DATA_EVENT", new AttributeValue().withS("DELETE"));
-                String bucketS3StorageKey = String.join("/", bucketItem.getBucketId(), String.valueOf(bucketItem.getBucketWindow()), String.join("", String.valueOf(System.currentTimeMillis()), ".json"));
-                String bucketItemJson = new ObjectMapper().writeValueAsString(bucketItem.getItemAttributeValueMap());
-                amazonS3.putObject(bucketTableName, bucketS3StorageKey, new ByteArrayInputStream(bucketItemJson.getBytes()), new ObjectMetadata());
+                Map<String, AttributeValue> deleteAttributeValueMap = new HashMap<>();
+                deleteAttributeValueMap.put("DATA_EVENT", new AttributeValue().withS("DELETE"));
+                deleteAttributeValueMap.put("itemId", new AttributeValue().withS(bucketItem.getItemId()));
+                String bucketS3StorageKey = String.join("/", bucketTableName, String.valueOf(bucketItem.getBucketId()), bucketItem.getBucketWindow().toString(), String.join("", String.valueOf(System.currentTimeMillis()), ".json"));
+                String bucketItemJson = new ObjectMapper().writeValueAsString(deleteAttributeValueMap);
+                amazonS3.putObject("addx-test", bucketS3StorageKey, new ByteArrayInputStream(bucketItemJson.getBytes()), new ObjectMetadata());
             } catch (Exception e) {
                 log.warn("amazonS3 putObject failed", e);
             }

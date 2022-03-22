@@ -20,9 +20,8 @@ import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import group.bison.dynamodb.bucket.api.BucketApi;
 import group.bison.dynamodb.bucket.common.domain.DataQueryParam;
-import group.bison.dynamodb.bucket.simple.SimpleBucket;
+import group.bison.dynamodb.bucket.s3.S3Bucket;
 import group.bison.dynamodb.bucket.simple.annotation.BucketIdField;
-import group.bison.dynamodb.bucket.simple.annotation.BucketIndexField;
 import group.bison.dynamodb.bucket.simple.annotation.ItemTimestampField;
 import group.bison.dynamodb.bucket.test.util.DynamodbJsonConverter;
 import lombok.AllArgsConstructor;
@@ -45,7 +44,7 @@ import static group.bison.dynamodb.bucket.common.Constants.KEY_BUCKET_ID;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_START_BUCKET_WINDOW;
 
 @Slf4j
-public class BucketTest {
+public class S3BucketTest {
 
     public static void main(String[] args) {
         ((Logger) LoggerFactory.getILoggerFactory().getLogger("ROOT")).setLevel(Level.INFO);
@@ -55,16 +54,21 @@ public class BucketTest {
                 .withRegion(System.getenv("awsRegion"))
                 .withCredentials(new AWSStaticCredentialsProvider(awsCredentials))
                 .build();
+        AmazonS3 amazonS3 = AmazonS3ClientBuilder.standard()
+                .withRegion(System.getenv("awsRegion"))
+                .withCredentials(new AWSStaticCredentialsProvider(awsCredentials))
+                .withAccelerateModeEnabled(false)
+                .build();
 
-        DeleteItemRequest deleteItemRequest = new DeleteItemRequest();
-        deleteItemRequest.setTableName("bucket-video_library");
-        deleteItemRequest.setKey(new HashMap<String, AttributeValue>() {{
-            put(KEY_BUCKET_ID, new AttributeValue().withS("1"));
-            put(KEY_START_BUCKET_WINDOW, new AttributeValue().withN(String.valueOf(System.currentTimeMillis() / 60 / 60 / 1000)));
-        }});
-        dynamoDB.deleteItem(deleteItemRequest);
+//        DeleteItemRequest deleteItemRequest = new DeleteItemRequest();
+//        deleteItemRequest.setTableName("bucket-video_library");
+//        deleteItemRequest.setKey(new HashMap<String, AttributeValue>() {{
+//            put(KEY_BUCKET_ID, new AttributeValue().withS("1"));
+//            put(KEY_START_BUCKET_WINDOW, new AttributeValue().withN(String.valueOf(System.currentTimeMillis() / 60 / 60 / 1000)));
+//        }});
+//        dynamoDB.deleteItem(deleteItemRequest);
 
-        BucketApi<VideoLibrary> bucket = new SimpleBucket<VideoLibrary>("video_library", VideoLibrary.class, dynamoDB, null);
+        BucketApi<VideoLibrary> bucket = new S3Bucket<>("video_library", VideoLibrary.class, dynamoDB, null, amazonS3);
 
         VideoLibrary videoLibrary = VideoLibrary.builder().traceId(UUID.randomUUID().toString()).userId(1).timestamp(Long.valueOf(System.currentTimeMillis() / 1000).intValue()).serialNumber("sn_01")
                 .tags(new HashSet<String>() {{
@@ -140,11 +144,9 @@ public class BucketTest {
         @DynamoDBAttribute(attributeName = "timestamp")
         private Integer timestamp;
 
-        @BucketIndexField
         @DynamoDBAttribute(attributeName = "serial_number")
         private String serialNumber;
 
-        @BucketIndexField
         @DynamoDBAttribute(attributeName = "tags")
         private Set<String> tags;
 
