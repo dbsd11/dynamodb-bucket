@@ -56,13 +56,13 @@ public class SimpleBucket<T> implements BucketApi<T> {
                 .build());
         DynamoDBMapperTableModel<T> tableModel = mapper.getTableModel(itemCls);
         this.itemParser = new SimpleItemParser<>(tableModel);
-        this.bucketMetaDataMapper = new BucketMetaDataMapper("bucket-" + tableName, daxDynamoDB != null ? daxDynamoDB : dynamoDB);
-        this.bucketDataMapper = new BucketDataMapper("bucket-" + tableName, daxDynamoDB != null ? daxDynamoDB : dynamoDB, new SimpleExpressionFilter());
+        this.bucketMetaDataMapper = new BucketMetaDataMapper("bucket-" + tableName, daxDynamoDB != null ? daxDynamoDB : dynamoDB, null);
+        this.bucketDataMapper = new BucketDataMapper("bucket-" + tableName, daxDynamoDB != null ? daxDynamoDB : dynamoDB, null, new SimpleExpressionFilter());
 
         List<AttributeDefinition> attributeDefinitionList = new LinkedList<>();
         attributeDefinitionList.add(new AttributeDefinition().withAttributeName(KEY_BUCKET_ID).withAttributeType(ScalarAttributeType.S));
         attributeDefinitionList.add(new AttributeDefinition().withAttributeName(KEY_START_BUCKET_WINDOW).withAttributeType(ScalarAttributeType.N));
-        new BucketMetaDataMapper("bucket-" + tableName, dynamoDB).createBucketTable(attributeDefinitionList);
+        new BucketMetaDataMapper("bucket-" + tableName, dynamoDB, null).createBucketTable(attributeDefinitionList);
     }
 
     @Override

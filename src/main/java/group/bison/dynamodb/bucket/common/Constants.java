@@ -10,6 +10,8 @@ public interface Constants {
 
     String KEY_ITEM_MAP = "item_map";
 
+    String KEY_BUCKET_S3_STORAGE_URL = "s3_storage_url";
+
     String KEY_BIZ_ID = "bizId";
 
     String KEY_TTL_TIMESTAMP = "ttl_timestamp";

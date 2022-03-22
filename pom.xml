@@ -39,6 +39,11 @@
         <!--     aws dependencies       -->
         <dependency>
             <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-core</artifactId>
+            <version>1.12.174</version>
+        </dependency>
+        <dependency>
+            <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-sts</artifactId>
             <version>1.12.174</version>
         </dependency>
@@ -49,13 +54,13 @@
         </dependency>
         <dependency>
             <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-core</artifactId>
-            <version>1.12.174</version>
+            <artifactId>amazon-dax-client</artifactId>
+            <version>1.0.230341.0</version>
         </dependency>
         <dependency>
             <groupId>com.amazonaws</groupId>
-            <artifactId>amazon-dax-client</artifactId>
-            <version>1.0.230341.0</version>
+            <artifactId>aws-java-sdk-s3</artifactId>
+            <version>1.12.174</version>
         </dependency>
 
         <dependency>

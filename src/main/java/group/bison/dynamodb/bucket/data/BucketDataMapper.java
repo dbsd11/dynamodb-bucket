@@ -2,22 +2,24 @@ package group.bison.dynamodb.bucket.data;
 
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
-import com.amazonaws.services.dynamodbv2.model.AttributeValueUpdate;
 import com.amazonaws.services.dynamodbv2.model.QueryRequest;
 import com.amazonaws.services.dynamodbv2.model.QueryResult;
-import com.amazonaws.services.dynamodbv2.model.ReturnConsumedCapacity;
 import com.amazonaws.services.dynamodbv2.model.ReturnItemCollectionMetrics;
 import com.amazonaws.services.dynamodbv2.model.UpdateItemRequest;
-import com.amazonaws.services.dynamodbv2.model.UpdateItemResult;
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import group.bison.dynamodb.bucket.common.Constants;
 import group.bison.dynamodb.bucket.common.domain.DataQueryParam;
 import group.bison.dynamodb.bucket.metadata.BucketItem;
 import group.bison.dynamodb.bucket.metadata.IndexCollection;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -26,6 +28,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -40,6 +43,7 @@ import static group.bison.dynamodb.bucket.common.Constants.NS_EMPTY_VALUE;
 import static group.bison.dynamodb.bucket.common.Constants.SCAN_MAX_COUNT;
 import static group.bison.dynamodb.bucket.common.Constants.SS_EMPTY_STR;
 
+@Slf4j
 @NoArgsConstructor
 public class BucketDataMapper {
 
@@ -51,10 +55,17 @@ public class BucketDataMapper {
 
     private BucketDataQueryFetcher bucketDataQueryFetcher;
 
-    public BucketDataMapper(String bucketTableName, AmazonDynamoDB dynamoDB, ExpressionFilter expressionFilter) {
+    private Optional<AmazonS3> amazonS3Optional;
+
+    public BucketDataMapper(String bucketTableName, AmazonDynamoDB dynamoDB, AmazonS3 amazonS3, ExpressionFilter expressionFilter) {
         this.bucketTableName = bucketTableName;
         this.dynamoDB = dynamoDB;
         this.expressionFilter = expressionFilter;
+        if (amazonS3 == null) {
+            this.amazonS3Optional = Optional.empty();
+        } else {
+            this.amazonS3Optional = Optional.of(amazonS3);
+        }
 
         init();
     }
@@ -127,7 +138,18 @@ public class BucketDataMapper {
         updateItemRequest.setExpressionAttributeNames(attributeNameMap);
         updateItemRequest.setExpressionAttributeValues(attributeValueMap);
 
-        UpdateItemResult updateItemResult = dynamoDB.updateItem(updateItemRequest);
+        dynamoDB.updateItem(updateItemRequest);
+
+        amazonS3Optional.ifPresent(amazonS3 -> {
+            try {
+                bucketItem.getItemAttributeValueMap().put("DATA_EVENT", new AttributeValue().withS("INSERT"));
+                String bucketS3StorageKey = String.join("/", bucketItem.getBucketId(), String.valueOf(bucketItem.getBucketWindow()), String.join("", String.valueOf(System.currentTimeMillis()), ".json"));
+                String bucketItemJson = new ObjectMapper().writeValueAsString(bucketItem.getItemAttributeValueMap());
+                amazonS3.putObject(bucketTableName, bucketS3StorageKey, new ByteArrayInputStream(bucketItemJson.getBytes()), new ObjectMetadata());
+            } catch (Exception e) {
+                log.warn("amazonS3 putObject failed", e);
+            }
+        });
     }
 
     public void update(BucketItem bucketItem) {
@@ -266,9 +288,19 @@ public class BucketDataMapper {
 
         updateItemRequest.setConditionExpression(String.join("", "attribute_exists(", itemMapColumn, ".", "#itemId", ".", KEY_BIZ_ID, ")"));
 
-        updateItemRequest.setReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
-        UpdateItemResult updateItemResult = dynamoDB.updateItem(updateItemRequest);
-        System.out.println("updateItem " + updateItemResult.getConsumedCapacity());
+        dynamoDB.updateItem(updateItemRequest);
+
+        amazonS3Optional.ifPresent(amazonS3 -> {
+            try {
+                bucketItem.getItemAttributeValueMap().put("DATA_EVENT", new AttributeValue().withS("UPDATE"));
+
+                String bucketS3StorageKey = String.join("/", bucketItem.getBucketId(), String.valueOf(bucketItem.getBucketWindow()), String.join("", String.valueOf(System.currentTimeMillis()), ".json"));
+                String bucketItemJson = new ObjectMapper().writeValueAsString(bucketItem.getItemAttributeValueMap());
+                amazonS3.putObject(bucketTableName, bucketS3StorageKey, new ByteArrayInputStream(bucketItemJson.getBytes()), new ObjectMetadata());
+            } catch (Exception e) {
+                log.warn("amazonS3 putObject failed", e);
+            }
+        });
     }
 
     public void delete(BucketItem bucketItem) {
@@ -302,6 +334,17 @@ public class BucketDataMapper {
         updateItemRequest.setExpressionAttributeValues(attributeValueMap);
 
         dynamoDB.updateItem(updateItemRequest);
+
+        amazonS3Optional.ifPresent(amazonS3 -> {
+            try {
+                bucketItem.getItemAttributeValueMap().put("DATA_EVENT", new AttributeValue().withS("DELETE"));
+                String bucketS3StorageKey = String.join("/", bucketItem.getBucketId(), String.valueOf(bucketItem.getBucketWindow()), String.join("", String.valueOf(System.currentTimeMillis()), ".json"));
+                String bucketItemJson = new ObjectMapper().writeValueAsString(bucketItem.getItemAttributeValueMap());
+                amazonS3.putObject(bucketTableName, bucketS3StorageKey, new ByteArrayInputStream(bucketItemJson.getBytes()), new ObjectMetadata());
+            } catch (Exception e) {
+                log.warn("amazonS3 putObject failed", e);
+            }
+        });
     }
 
     public <W> BucketItem queryOne(String bucketId, W startBucketWindow, String itemId) {

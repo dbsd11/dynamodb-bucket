@@ -13,11 +13,13 @@ import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
 import com.amazonaws.services.dynamodbv2.model.PutItemRequest;
 import com.amazonaws.services.dynamodbv2.model.ResourceNotFoundException;
 import com.amazonaws.services.dynamodbv2.model.UpdateItemRequest;
-import lombok.AllArgsConstructor;
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.model.ObjectMetadata;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
+import org.apache.http.impl.io.EmptyInputStream;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -26,12 +28,14 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static group.bison.dynamodb.bucket.common.Constants.KEY_BUCKET_ID;
+import static group.bison.dynamodb.bucket.common.Constants.KEY_BUCKET_S3_STORAGE_URL;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_ITEM_COUNT;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_ITEM_MAP;
 import static group.bison.dynamodb.bucket.common.Constants.KEY_START_BUCKET_WINDOW;
@@ -41,16 +45,27 @@ import static group.bison.dynamodb.bucket.common.Constants.SS_EMPTY_STR;
 
 @Slf4j
 @NoArgsConstructor
-@AllArgsConstructor
 public class BucketMetaDataMapper {
 
     private String bucketTableName;
 
     private AmazonDynamoDB dynamoDB;
 
+    private Optional<AmazonS3> amazonS3Optional;
+
     private static Set<String> bucketIndexSet = new HashSet<>();
 
     private static Map<String, Object> currentBucketWindowMap = new HashMap<>();
+
+    public BucketMetaDataMapper(String bucketTableName, AmazonDynamoDB dynamoDB, AmazonS3 amazonS3) {
+        this.bucketTableName = bucketTableName;
+        this.dynamoDB = dynamoDB;
+        if (amazonS3 == null) {
+            this.amazonS3Optional = Optional.empty();
+        } else {
+            this.amazonS3Optional = Optional.of(amazonS3);
+        }
+    }
 
     public void createBucketTable(List<AttributeDefinition> attributeDefinitionList) {
         boolean tableExist = false;
@@ -80,6 +95,12 @@ public class BucketMetaDataMapper {
             dynamoDB.createTable(createTableRequest);
         } catch (Exception e) {
             log.error("failed create bucket table", e);
+        }
+
+        try {
+            amazonS3Optional.ifPresent(amazonS3 -> amazonS3.createBucket(bucketTableName));
+        } catch (Exception e) {
+            log.error("failed create s3 bucket", e);
         }
 
     }
@@ -137,6 +158,12 @@ public class BucketMetaDataMapper {
         putItemRequest.setItem(bucketAttributeValueMap);
 
         currentBucketWindowMap.put(bucketId, startBucketWindow);
+
+        amazonS3Optional.ifPresent(amazonS3 -> {
+            String bucketS3StorageKey = String.join("/", bucketId, String.valueOf(startBucketWindow), String.join("", String.valueOf(System.currentTimeMillis()), ".json"));
+            amazonS3.putObject(bucketTableName, bucketS3StorageKey, EmptyInputStream.INSTANCE, new ObjectMetadata());
+            bucketAttributeValueMap.put(KEY_BUCKET_S3_STORAGE_URL, new AttributeValue().withS(bucketS3StorageKey));
+        });
 
         dynamoDB.putItem(putItemRequest);
         return;
